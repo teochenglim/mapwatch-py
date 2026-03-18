@@ -11,5 +11,5 @@ wheels/
 
 # Downloaded assets — regenerated on startup or docker build
 data/*
-!./data/.gitkeep
+!data/.gitkeep
 static/lib/
