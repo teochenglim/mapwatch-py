@@ -1,0 +1,7 @@
+.git/
+.venv/
+__pycache__/
+*.py[oc]
+
+# Exclude tile cache (large, fetched on demand) but keep geojson & leaflet assets
+data/tiles/

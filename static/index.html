@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>mapwatch-py</title>
+<link rel="stylesheet" href="/static/lib/leaflet.css"/>
+<link rel="stylesheet" href="/static/style.css"/>
+</head>
+<body>
+
+<div id="map-container">
+  <div id="map"></div>
+
+  <!-- Floating toolbar -->
+  <div id="toolbar">
+    <button class="btn" id="btn-select"    onclick="toggleSelectMode(this)">Select</button>
+    <button class="btn" id="btn-home"      onclick="goHome()">Home</button>
+    <button class="btn btn-layer active"   id="btn-dark"      onclick="setLayer('dark', this)">Dark</button>
+    <button class="btn btn-layer"          id="btn-satellite"  onclick="setLayer('satellite', this)">Satellite</button>
+    <button class="btn btn-layer"          id="btn-streets"    onclick="setLayer('streets', this)">Streets</button>
+  </div>
+
+  <!-- Bottom raise bar -->
+  <div id="bottom-bar">
+    <div id="bottom-bar-handle" onclick="toggleBottomBar()">
+      <span id="bottom-bar-count"></span>
+      <span id="bottom-bar-toggle">&#9660;</span>
+    </div>
+    <div id="bottom-bar-body">
+      <ul id="bottom-selection-list"></ul>
+    </div>
+  </div>
+</div>
+
+<script src="/static/lib/leaflet.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
