@@ -86,12 +86,19 @@ jobs:
       # ── Restore tile cache ──────────────────────────────────────────────────
       # Cache key includes zoom range, layers, and an optional bust number so
       # you can force a refresh via workflow_dispatch without changing code.
+      - name: Build tile cache key
+        id: tile-key
+        run: |
+          layers_slug="${TILE_LAYERS//,/-}"
+          bust="${{ github.event.inputs.tile_cache_bust || '1' }}"
+          echo "key=sg-tiles-z${TILE_ZOOM_MIN}-z${TILE_ZOOM_MAX}-${layers_slug}-v${bust}" >> "$GITHUB_OUTPUT"
+
       - name: Restore tile cache
         id: tile-cache
         uses: actions/cache@v4
         with:
           path: tilemap-server/tiles
-          key: sg-tiles-z${{ env.TILE_ZOOM_MIN }}-z${{ env.TILE_ZOOM_MAX }}-${{ env.TILE_LAYERS }}-v${{ github.event.inputs.tile_cache_bust || '1' }}
+          key: ${{ steps.tile-key.outputs.key }}
 
       # ── Download tiles (only on cache miss) ────────────────────────────────
       - name: Download Singapore tiles
