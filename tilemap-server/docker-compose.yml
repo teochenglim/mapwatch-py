@@ -1,0 +1,10 @@
+services:
+  tilemap-server:
+    image: ghcr.io/teochenglim/mapwatch-py/tilemap-server:latest
+    build: .
+    ports:
+      - "8001:80"
+    volumes:
+      # Pre-downloaded tile cache.  Run download-sg-tiles.sh to populate.
+      - ./tiles:/tiles:ro
+    restart: unless-stopped

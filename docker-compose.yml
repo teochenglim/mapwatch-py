@@ -1,7 +1,40 @@
 services:
+
+  # ── mapwatch-py app ───────────────────────────────────────────────────────
   app:
-    image: teochenglim/mapwatch-py
-    build: .
+    image: teochenglim/mapwatch-py:latest
+    build:
+      context: .
     ports:
       - "8000:8000"
+    environment:
+      # Local dev: leave ROOT_PATH empty — app runs at http://localhost:8000/
+      ROOT_PATH: ""
+      # Point to the local tilemap-server for offline tile serving.
+      # Set to "" to fall back to the built-in CDN tile proxy.
+      TILE_SERVER_URL: ""
+      # ── K8s / Traefik example (uncomment) ─────────────────────────────────
+      # ROOT_PATH: /department/mapwatch-py
+      # TILE_SERVER_URL: /department/tile-server
+    volumes:
+      # Named volume — data persists across restarts
+      - mapwatch-data:/app/data
     restart: unless-stopped
+    depends_on:
+      - tilemap-server
+
+  # ── tilemap-server — offline tile cache ──────────────────────────────────
+  tilemap-server:
+    image: ghcr.io/teochenglim/mapwatch-py/tilemap-server:latest
+    build:
+      context: ./tilemap-server
+    ports:
+      - "8001:80"
+    volumes:
+      # Tile files live here — pre-populate with download-sg-tiles.sh
+      - tilemap-tiles:/tiles
+    restart: unless-stopped
+
+volumes:
+  mapwatch-data:
+  tilemap-tiles:

@@ -1,38 +1,346 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>mapwatch-py</title>
-<link rel="stylesheet" href="/static/lib/leaflet.css"/>
-<link rel="stylesheet" href="/static/style.css"/>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MapWatch</title>
+
+  <!-- ── Base-path config injected by server ─────────────────────────────────
+       MW_BASE      : path prefix where mapwatch-py is mounted  (e.g. /department/mapwatch-py)
+       MW_TILE_BASE : base URL for tile requests               (e.g. /department/tile-server)
+       Both are "" when running locally at root.
+  ── -->
+  <script>
+    window.MW_BASE      = {{ mw_base      | tojson }};
+    window.MW_TILE_BASE = {{ mw_tile_base | tojson }};
+  </script>
+
+  <!-- Leaflet CSS — served from /static/lib/; CDN fallback before first startup download -->
+  <link rel="stylesheet" href="{{ mw_base }}/static/lib/leaflet.css"
+        onerror="this.onerror=null;this.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'" />
+  <link rel="stylesheet" href="{{ mw_base }}/static/lib/MarkerCluster.css"
+        onerror="this.onerror=null;this.href='https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css'" />
+  <link rel="stylesheet" href="{{ mw_base }}/static/lib/MarkerCluster.Default.css"
+        onerror="this.onerror=null;this.href='https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css'" />
+
+  <script src="{{ mw_base }}/static/lib/leaflet.js"></script>
+  <script src="{{ mw_base }}/static/lib/leaflet.markercluster.js"></script>
+  <script>
+    if (typeof L === 'undefined') {
+      document.write('<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script>');
+      document.write('<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"><\/script>');
+    }
+  </script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+      overflow: hidden;
+    }
+
+    #map { width: 100vw; height: 100vh; }
+
+    /* ── Toolbar ── */
+    #toolbar {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 1000;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      background: rgba(13,17,23,.85);
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 8px 12px;
+      backdrop-filter: blur(6px);
+      flex-wrap: wrap;
+      max-width: calc(100vw - 24px);
+    }
+
+    #toolbar h1 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 700;
+      color: #58a6ff;
+      letter-spacing: .05em;
+    }
+
+    .tb-sep { width: 1px; height: 20px; background: #30363d; }
+
+    .tb-btn {
+      background: transparent;
+      border: 1px solid #30363d;
+      border-radius: 5px;
+      color: #e6edf3;
+      cursor: pointer;
+      font-size: 12px;
+      padding: 4px 10px;
+      transition: background .15s, border-color .15s;
+    }
+    .tb-btn:hover  { background: #21262d; border-color: #58a6ff; }
+    .tb-btn.active { background: #1f6feb; border-color: #1f6feb; }
+
+    .tb-btn-select              { border-color: #22d3ee; color: #22d3ee; }
+    .tb-btn-select:hover        { background: #0e3a3f; border-color: #22d3ee; }
+    .tb-btn-select.active       { background: #164e5a; border-color: #22d3ee; color: #22d3ee; }
+
+    #ws-status {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #f85149;
+      transition: background .3s;
+    }
+    #ws-status.connected { background: #3fb950; }
+
+    /* ── Side panel ── */
+    #panel {
+      position: absolute;
+      top: 0; right: -420px;
+      width: 400px;
+      height: 100vh;
+      z-index: 1100;
+      background: #161b22;
+      border-left: 1px solid #30363d;
+      display: flex;
+      flex-direction: column;
+      transition: right .25s ease;
+      overflow: hidden;
+    }
+    #panel.open { right: 0; }
+
+    #panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px;
+      border-bottom: 1px solid #30363d;
+      flex-shrink: 0;
+    }
+    #panel-title { font-size: 15px; font-weight: 600; margin: 0; }
+    #panel-close {
+      background: none; border: none; color: #8b949e;
+      cursor: pointer; font-size: 18px; line-height: 1; padding: 2px 6px;
+    }
+    #panel-close:hover { color: #e6edf3; }
+    #panel-body { flex: 1; overflow-y: auto; padding: 16px; }
+
+    .severity-badge {
+      display: inline-block; border-radius: 4px; font-size: 11px;
+      font-weight: 600; padding: 2px 8px; text-transform: uppercase; letter-spacing: .04em;
+    }
+    .sev-critical { background: #3d1111; color: #f85149; border: 1px solid #f85149; }
+    .sev-warning  { background: #2d2005; color: #e3b341; border: 1px solid #e3b341; }
+    .sev-info     { background: #0d2137; color: #58a6ff; border: 1px solid #58a6ff; }
+    .sev-unknown  { background: #1c2128; color: #8b949e; border: 1px solid #8b949e; }
+
+    .meta-row { margin: 6px 0; font-size: 13px; color: #8b949e; }
+    .meta-row strong { color: #e6edf3; }
+    .panel-section { margin-top: 16px; }
+    .panel-section h3 {
+      font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+      color: #8b949e; margin: 0 0 8px;
+    }
+    #links-error   { color: #f85149; font-size: 13px; display: none; }
+    #links-loading { color: #8b949e; font-size: 13px; display: none; }
+
+    .leaflet-tooltip.mw-tooltip {
+      background: #161b22; border: 1px solid #30363d; border-radius: 6px;
+      color: #e6edf3; font-size: 13px; padding: 8px 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,.5); white-space: nowrap; pointer-events: none;
+    }
+    .leaflet-tooltip.mw-tooltip::before { border-top-color: #30363d; }
+    .mw-tt-title  { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+    .mw-tt-sev    { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing:.04em; margin-bottom: 4px; }
+    .mw-tt-row    { color: #8b949e; font-size: 12px; margin-top: 2px; }
+    .mw-tt-hint   { color: #30363d; font-size: 11px; margin-top: 6px; border-top: 1px solid #21262d; padding-top: 5px; }
+
+    .labels-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; font-size: 12px; }
+    .label-key   { color: #8b949e; }
+    .label-value { color: #e6edf3; word-break: break-all; }
+
+    details summary { cursor: pointer; font-size: 12px; color: #8b949e; user-select: none; }
+    details summary:hover { color: #58a6ff; }
+
+    .mw-marker { width: 20px; height: 20px; border-radius: 50%; border: 2.5px solid; opacity: 0.92; }
+
+    @keyframes mw-pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(248,81,73,.85); }
+      70%  { box-shadow: 0 0 0 16px rgba(248,81,73,0); }
+      100% { box-shadow: 0 0 0 0 rgba(248,81,73,0); }
+    }
+    .mw-pulse { animation: mw-pulse 1.4s ease-out infinite; }
+
+    @keyframes mw-breathe {
+      0%   { transform: scale(1);    opacity: 1; }
+      50%  { transform: scale(1.25); opacity: 0.75; }
+      100% { transform: scale(1);    opacity: 1; }
+    }
+    .mw-breathe { animation: mw-breathe 3s ease-in-out infinite; }
+
+    .geohash-rect { stroke: #58a6ff; stroke-width: 2; fill: rgba(88,166,255,.1); }
+
+    .mw-dc-wrap { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; }
+    .mw-dc-badge {
+      position: absolute; top: 0; right: 0; background: #f85149; color: #fff;
+      border-radius: 50%; width: 14px; height: 14px; font-size: 9px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center; border: 1.5px solid #0d1117; line-height: 1;
+    }
+
+    .dc-sev-bar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; gap: 2px; }
+    .dc-sev-seg { border-radius: 3px; }
+
+    #zoom-slider {
+      width: 72px; height: 4px; -webkit-appearance: none; appearance: none;
+      border-radius: 2px; background: #30363d; outline: none; cursor: pointer;
+      accent-color: #58a6ff; vertical-align: middle;
+    }
+    #zoom-slider::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 12px; height: 12px;
+      border-radius: 50%; background: #58a6ff; cursor: pointer;
+    }
+
+    #map-coords {
+      position: absolute; bottom: 8px; left: 8px; z-index: 1000;
+      background: rgba(13,17,23,0.82); color: #8b949e; font-size: 11px;
+      font-family: monospace; padding: 3px 7px; border-radius: 3px;
+      pointer-events: none; display: none;
+    }
+
+    .dc-alert-item {
+      display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px;
+      margin-bottom: 6px; background: #0d1117; border: 1px solid #30363d;
+      border-radius: 6px; cursor: pointer; transition: border-color .15s, background .15s;
+    }
+    .dc-alert-item:hover { border-color: #58a6ff; background: #161b22; }
+    .dc-alert-body   { flex: 1; min-width: 0; }
+    .dc-alert-name   { font-size: 13px; font-weight: 600; color: #e6edf3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .dc-alert-meta   { font-size: 11px; color: #8b949e; margin-top: 2px; }
+    .dc-alert-summary{ font-size: 11px; color: #6e7681; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .dc-alert-arrow  { color: #8b949e; font-size: 12px; flex-shrink: 0; margin-top: 2px; }
+
+    /* ── Drag-to-select bottom panel ── */
+    #select-panel {
+      position: absolute; bottom: -260px; left: 0; right: 0; max-height: 260px;
+      z-index: 1050; background: rgba(13,17,23,.95); border-top: 1px solid #30363d;
+      display: flex; flex-direction: column; transition: bottom .25s ease; backdrop-filter: blur(6px);
+    }
+    #select-panel.open { bottom: 0; }
+    #select-panel-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 14px; border-bottom: 1px solid #30363d; flex-shrink: 0;
+    }
+    #select-panel-title { font-size: 13px; font-weight: 600; color: #22d3ee; }
+    #select-panel-close {
+      background: none; border: none; color: #8b949e;
+      cursor: pointer; font-size: 18px; line-height: 1; padding: 2px 6px;
+    }
+    #select-panel-close:hover { color: #e6edf3; }
+    #select-panel-body { flex: 1; overflow-y: auto; padding: 10px 14px; }
+
+    .sel-group { margin-bottom: 10px; }
+    .sel-group-label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #8b949e; margin-bottom: 6px; }
+    .sel-group-count { display: inline-block; background: #22d3ee22; color: #22d3ee; border-radius: 8px; padding: 0 6px; font-size: 10px; font-weight: 700; margin-left: 4px; }
+    .sel-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .sel-chip { display: flex; flex-direction: column; background: #161b22; border: 1px solid #30363d; border-radius: 5px; padding: 4px 8px; font-size: 12px; min-width: 80px; max-width: 180px; }
+    .sel-chip-name { color: #e6edf3; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sel-chip-sub  { color: #8b949e; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  </style>
 </head>
 <body>
-
-<div id="map-container">
   <div id="map"></div>
 
-  <!-- Floating toolbar -->
+  <!-- Toolbar -->
   <div id="toolbar">
-    <button class="btn" id="btn-select"    onclick="toggleSelectMode(this)">Select</button>
-    <button class="btn" id="btn-home"      onclick="goHome()">Home</button>
-    <button class="btn btn-layer active"   id="btn-dark"      onclick="setLayer('dark', this)">Dark</button>
-    <button class="btn btn-layer"          id="btn-satellite"  onclick="setLayer('satellite', this)">Satellite</button>
-    <button class="btn btn-layer"          id="btn-streets"    onclick="setLayer('streets', this)">Streets</button>
+    <h1>MapWatch</h1>
+    <div class="tb-sep"></div>
+    <div id="ws-status" title="WebSocket status"></div>
+
+    <div class="tb-sep"></div>
+
+    <!-- Tile layer -->
+    <button class="tb-btn active" id="btn-dark"      onclick="MapWatch.setTheme('dark')">Dark</button>
+    <button class="tb-btn"        id="btn-light"     onclick="MapWatch.setTheme('light')">Light</button>
+    <button class="tb-btn"        id="btn-streets"   onclick="MapWatch.setTheme('streets')">Streets</button>
+    <button class="tb-btn"        id="btn-satellite" onclick="MapWatch.setTheme('satellite')">Satellite</button>
+
+    <div class="tb-sep"></div>
+
+    <!-- Navigation -->
+    <button class="tb-btn" title="Reset to full Singapore view" onclick="MapWatch.resetToSG()">&#8635; Home</button>
+    <input  id="zoom-slider" type="range" min="10" max="19" step="1" value="12"
+            title="Zoom level" oninput="MapWatch.setZoom(this.value)" />
+
+    <div class="tb-sep"></div>
+
+    <!-- GeoJSON overlay layers — lazy-loaded on first toggle -->
+    <button class="tb-btn" id="btn-layer-division"
+            onclick="MapWatch.toggleLayer('division',this)">Divisions</button>
+    <button class="tb-btn" id="btn-layer-roads"
+            onclick="MapWatch.toggleLayer('roads',this)">Roads</button>
+    <button class="tb-btn" id="btn-layer-cycling"
+            onclick="MapWatch.toggleLayer('cycling',this)">Cycling</button>
+    <button class="tb-btn" id="btn-layer-mrt"
+            onclick="MapWatch.toggleLayer('mrt',this)">MRT</button>
+    <button class="tb-btn" id="btn-layer-busstops"
+            onclick="MapWatch.toggleLayer('busStops',this)">Bus Stops</button>
+    <button class="tb-btn" id="btn-layer-busroutes"
+            onclick="MapWatch.toggleLayer('busRoutes',this)">Bus Routes</button>
+
+    <div class="tb-sep"></div>
+
+    <!-- Drag-to-select -->
+    <button class="tb-btn tb-btn-select" id="btn-select"
+            onclick="MapWatch.toggleSelect()"
+            title="Drag to select features from all visible layers">Select</button>
   </div>
 
-  <!-- Bottom raise bar -->
-  <div id="bottom-bar">
-    <div id="bottom-bar-handle" onclick="toggleBottomBar()">
-      <span id="bottom-bar-count"></span>
-      <span id="bottom-bar-toggle">&#9660;</span>
-    </div>
-    <div id="bottom-bar-body">
-      <ul id="bottom-selection-list"></ul>
-    </div>
-  </div>
-</div>
+  <!-- Mouse coordinate display -->
+  <div id="map-coords"></div>
 
-<script src="/static/lib/leaflet.js"></script>
-<script src="/static/app.js"></script>
+  <!-- Side panel -->
+  <div id="panel">
+    <div id="panel-header">
+      <h2 id="panel-title">Details</h2>
+      <button id="panel-close" onclick="MapWatch.closePanel()" title="Close (Esc)">&times;</button>
+    </div>
+    <div id="panel-body"><div id="panel-content"></div></div>
+  </div>
+
+  <!-- Drag-to-select bottom panel -->
+  <div id="select-panel">
+    <div id="select-panel-header">
+      <span id="select-panel-title">0 features selected</span>
+      <button id="select-panel-close" onclick="MapWatch.toggleSelect()" title="Clear">&times;</button>
+    </div>
+    <div id="select-panel-body"><div id="select-panel-content"></div></div>
+  </div>
+
+  <script src="{{ mw_base }}/static/mapwatch.js"></script>
+  <script src="{{ mw_base }}/static/effects/blink.js"></script>
+  <script src="{{ mw_base }}/static/effects/heatmap.js"></script>
+  <script src="{{ mw_base }}/static/effects/geohash-grid.js"></script>
+
+  <script>
+    (function () {
+      fetch(window.MW_BASE + '/api/config')
+        .then(function (r) { return r.json(); })
+        .then(function (cfg) {
+          var m = cfg.modules || {};
+          function dynScript(src) {
+            var s = document.createElement('script'); s.src = src; document.body.appendChild(s);
+          }
+          if (m.sound)       dynScript(window.MW_BASE + '/static/modules/sound.js');
+          if (m.leaderboard) dynScript(window.MW_BASE + '/static/modules/leaderboard.js');
+          if (m.stats)       dynScript(window.MW_BASE + '/static/modules/stats.js');
+          if (cfg.leaderboardUrl) window._mwLeaderboardUrl = cfg.leaderboardUrl;
+        }).catch(function () {});
+    })();
+  </script>
 </body>
 </html>

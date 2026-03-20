@@ -13,3 +13,7 @@ wheels/
 data/*
 !data/.gitkeep
 static/lib/
+
+# Tile cache — downloaded by CI, not committed (gitkeep preserves the directory)
+tilemap-server/tiles/*
+!tilemap-server/tiles/.gitkeep
