@@ -17,14 +17,21 @@ http {
     keepalive_timeout 65;
     gzip  off;   # PNG tiles are already compressed
 
-    # Allow embedding from any origin (needed by Leaflet map pages)
-    add_header Access-Control-Allow-Origin  "*" always;
+    # CORS: restrict to known origin in air-gapped envs (BASE_URL defaults to *)
+    add_header Access-Control-Allow-Origin  "${BASE_URL}" always;
     add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
     add_header Cache-Control "public, max-age=86400" always;
 
     server {
         listen 80;
         server_name _;
+
+        # Runtime config (substituted by entrypoint.sh):
+        #   BASE_URL  = ${BASE_URL}
+        #   ROOT_PATH = ${ROOT_PATH}
+        #
+        # Ingress strips ROOT_PATH before forwarding here,
+        # so tile requests always arrive as /{layer}/{z}/{x}/{y}.png
 
         root /tiles;
 
@@ -35,8 +42,6 @@ http {
         }
 
         # Tile requests: /{layer}/{z}/{x}/{y}.png
-        # Traefik stripPrefix removes the route prefix before forwarding here,
-        # so the pod always receives paths starting with /{layer}/...
         location ~ ^/([a-z]+)/(\d+)/(\d+)/(\d+)\.png$ {
             try_files $uri =404;
             add_header X-Tile-Source "local-cache" always;

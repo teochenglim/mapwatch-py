@@ -1,0 +1,51 @@
+---
+# ConfigMap — edit BASE_URL for your air-gapped domain
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tilemap-config
+data:
+  BASE_URL: "http://localhost:8000"
+  ROOT_PATH: "/department/tilemap-server"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tilemap-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tilemap-server
+  template:
+    metadata:
+      labels:
+        app: tilemap-server
+    spec:
+      containers:
+        - name: tilemap-server
+          image: ghcr.io/teochenglim/mapwatch-py/tilemap-server:v1
+          ports:
+            - containerPort: 80
+          envFrom:
+            - configMapRef:
+                name: tilemap-config
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 80
+            initialDelaySeconds: 3
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tilemap-server
+spec:
+  selector:
+    app: tilemap-server
+  ports:
+    - port: 80
+      targetPort: 80

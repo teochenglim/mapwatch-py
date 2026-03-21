@@ -12,9 +12,11 @@
 
 FROM nginx:1.27-alpine
 
-RUN apk add --no-cache curl
+RUN apk add --no-cache curl gettext
 
-COPY nginx.conf /etc/nginx/nginx.conf
+COPY nginx.conf.template /etc/nginx/nginx.conf.template
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # Copy pre-downloaded tiles (populated by CI before docker build).
 # The tiles/ directory always exists in the repo (contains .gitkeep),
@@ -27,7 +29,10 @@ RUN chmod +x /usr/local/bin/download-sg-tiles.sh
 
 EXPOSE 80
 
+ENV BASE_URL="*"
+ENV ROOT_PATH="/department/tilemap-server"
+
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD curl -sf http://localhost/healthz || exit 1
 
-CMD ["nginx", "-g", "daemon off;"]
+ENTRYPOINT ["/entrypoint.sh"]

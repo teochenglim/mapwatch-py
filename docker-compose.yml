@@ -1,40 +1,40 @@
 services:
 
-  # ── mapwatch-py app ───────────────────────────────────────────────────────
-  app:
-    image: teochenglim/mapwatch-py:latest
+  # ── Reverse proxy — routes subpaths to the right backend ─────────────────────
+  # http://localhost:8000/department/mapwatch-py/
+  # http://localhost:8000/department/tilemap-server/
+  proxy:
     build:
-      context: .
+      context: ./proxy
+    image: ghcr.io/teochenglim/mapwatch-py/proxy:${IMAGE_TAG:-latest}
     ports:
       - "8000:8000"
+    depends_on:
+      - app
+      - tilemap-server
+    restart: unless-stopped
+
+  # ── mapwatch-py app ───────────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+    image: ghcr.io/teochenglim/mapwatch-py:${IMAGE_TAG:-latest}
     environment:
-      # Local dev: leave ROOT_PATH empty — app runs at http://localhost:8000/
-      ROOT_PATH: ""
-      # Point to the local tilemap-server for offline tile serving.
-      # Set to "" to fall back to the built-in CDN tile proxy.
-      TILE_SERVER_URL: ""
-      # ── K8s / Traefik example (uncomment) ─────────────────────────────────
-      # ROOT_PATH: /department/mapwatch-py
-      # TILE_SERVER_URL: /department/tile-server
-    volumes:
-      # Named volume — data persists across restarts
-      - mapwatch-data:/app/data
+      # Sub-path the app is mounted at (must match proxy location above)
+      ROOT_PATH: /department/mapwatch-py
+      # Full URL to the tilemap-server (change BASE_URL for air-gapped envs)
+      TILE_SERVER_URL: "${BASE_URL:-http://localhost:8000}/department/tilemap-server"
+      BASE_URL: "${BASE_URL:-http://localhost:8000}"
     restart: unless-stopped
     depends_on:
       - tilemap-server
 
-  # ── tilemap-server — offline tile cache ──────────────────────────────────
+  # ── tilemap-server — offline tile cache ──────────────────────────────────────
   tilemap-server:
-    image: ghcr.io/teochenglim/mapwatch-py/tilemap-server:latest
     build:
       context: ./tilemap-server
-    ports:
-      - "8001:80"
-    volumes:
-      # Tile files live here — pre-populate with download-sg-tiles.sh
-      - tilemap-tiles:/tiles
+    image: ghcr.io/teochenglim/mapwatch-py/tilemap-server:${IMAGE_TAG:-latest}
+    environment:
+      BASE_URL: "${BASE_URL:-http://localhost:8000}"
+      ROOT_PATH: /department/tilemap-server
     restart: unless-stopped
-
-volumes:
-  mapwatch-data:
-  tilemap-tiles:

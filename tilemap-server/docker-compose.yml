@@ -1,10 +1,12 @@
 services:
   tilemap-server:
-    image: ghcr.io/teochenglim/mapwatch-py/tilemap-server:latest
     build: .
+    image: ghcr.io/teochenglim/mapwatch-py/tilemap-server:${IMAGE_TAG:-latest}
     ports:
       - "8001:80"
+    environment:
+      BASE_URL: "${BASE_URL:-http://localhost:8000}"
+      ROOT_PATH: /department/tilemap-server
     volumes:
-      # Pre-downloaded tile cache.  Run download-sg-tiles.sh to populate.
       - ./tiles:/tiles:ro
     restart: unless-stopped
