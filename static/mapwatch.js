@@ -140,7 +140,7 @@
 
     tileLayer = L.tileLayer(THEMES.dark.url, {
       attribution: THEMES.dark.attribution,
-      maxZoom: 19,
+      maxZoom: 18,
     }).addTo(map);
 
     clusterGroup = L.markerClusterGroup({

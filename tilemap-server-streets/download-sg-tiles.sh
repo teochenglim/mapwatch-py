@@ -25,7 +25,7 @@
 set -eu
 
 ZOOM_MIN=10
-ZOOM_MAX=15
+ZOOM_MAX=18
 LAYERS="dark,light,streets"
 OUT_DIR="./tiles"
 
@@ -105,12 +105,21 @@ for LAYER in $(echo "$LAYERS" | tr ',' ' '); do
         [ -z "$URL" ] && continue
 
         mkdir -p "$(dirname "$DEST")"
-        if curl -sf --max-time 10 \
-            -H "User-Agent: mapwatch-py-tilefetcher/1.0" \
-            -o "$DEST" "$URL"; then
-          TOTAL=$((TOTAL + 1))
-        else
-          echo "  WARN: failed ${LAYER}/${Z}/${X}/${Y}" >&2
+        RETRY=0
+        SUCCESS=0
+        while [ $RETRY -lt 3 ]; do
+          if curl -sf --max-time 15 \
+              -H "User-Agent: mapwatch-py-tilefetcher/1.0" \
+              -o "$DEST" "$URL"; then
+            TOTAL=$((TOTAL + 1))
+            SUCCESS=1
+            break
+          fi
+          RETRY=$((RETRY + 1))
+          sleep $((RETRY * 2))
+        done
+        if [ $SUCCESS -eq 0 ]; then
+          echo "  WARN: failed ${LAYER}/${Z}/${X}/${Y} (gave up after 3 attempts)" >&2
           rm -f "$DEST"
         fi
 

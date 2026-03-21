@@ -22,7 +22,7 @@ env:
 
   # Tile download settings — z19 is the max for CartoDB and OSM
   TILE_ZOOM_MIN: '10'
-  TILE_ZOOM_MAX: '19'
+  TILE_ZOOM_MAX: '18'
 
 jobs:
 
