@@ -25,7 +25,7 @@ env:
   # Rough size: dark+streets z10-z15 ≈ 80–150 MB of PNG tiles
   TILE_ZOOM_MIN: '10'
   TILE_ZOOM_MAX: '15'
-  TILE_LAYERS:   'dark,streets'
+  TILE_LAYERS:   'dark,streets,light'
 
 jobs:
 

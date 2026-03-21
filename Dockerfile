@@ -24,9 +24,8 @@ RUN mkdir -p static/lib \
     && ([ -f static/lib/MarkerCluster.css ]         || curl -fsSL "https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"      -o static/lib/MarkerCluster.css) \
     && ([ -f static/lib/MarkerCluster.Default.css ] || curl -fsSL "https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" -o static/lib/MarkerCluster.Default.css)
 
-# Pre-cache bus stops GeoJSON (small file, publicly available)
-RUN mkdir -p data \
-    && ([ -f data/sg-bus-stops.geojson ] || curl -fsSL "https://data.busrouter.sg/v1/stops.min.geojson" -o data/sg-bus-stops.geojson)
+# Download all GeoJSON layers and bake into the image (mirrors Go version's download-sg CLI)
+RUN python scripts/download-geodata.py --out data
 
 EXPOSE 8000
 
