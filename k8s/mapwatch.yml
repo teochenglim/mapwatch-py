@@ -1,13 +1,43 @@
 ---
-# ConfigMap — edit BASE_URL for your air-gapped domain
+# ── Env config — edit BASE_URL for your air-gapped domain ────────────────────
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: mapwatch-config
+  name: mapwatch-env
 data:
-  BASE_URL: "http://localhost:8000"
-  ROOT_PATH: "/department/mapwatch-py"
+  BASE_URL:        "http://localhost:8000"
+  ROOT_PATH:       "/department/mapwatch-py"
   TILE_SERVER_URL: "http://localhost:8000/department/tilemap-server"
+
+---
+# ── Nginx sidecar config — strips /department/mapwatch-py/ prefix ─────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mapwatch-nginx
+data:
+  nginx.conf: |
+    worker_processes 1;
+    events { worker_connections 256; }
+
+    http {
+      server {
+        listen 80;
+        server_name _;
+
+        location /department/mapwatch-py/ {
+          proxy_pass         http://127.0.0.1:8000/;
+          proxy_set_header   Host              $host;
+          proxy_set_header   X-Real-IP         $remote_addr;
+          proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+          proxy_set_header   X-Forwarded-Proto $scheme;
+        }
+
+        location = / {
+          return 302 /department/mapwatch-py/;
+        }
+      }
+    }
 
 ---
 apiVersion: apps/v1
@@ -25,26 +55,33 @@ spec:
         app: mapwatch-py
     spec:
       containers:
-        - name: mapwatch-py
+        - name: app
           image: ghcr.io/teochenglim/mapwatch-py:v1
           ports:
             - containerPort: 8000
           envFrom:
             - configMapRef:
-                name: mapwatch-config
+                name: mapwatch-env
+
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 80
           volumeMounts:
-            - name: data
-              mountPath: /app/data
+            - name: nginx-conf
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
           readinessProbe:
             httpGet:
-              path: /department/mapwatch-py/health
-              port: 8000
+              path: /department/mapwatch-py/
+              port: 80
             initialDelaySeconds: 5
             periodSeconds: 10
+
       volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: mapwatch-data
+        - name: nginx-conf
+          configMap:
+            name: mapwatch-nginx
 
 ---
 apiVersion: v1
@@ -55,16 +92,5 @@ spec:
   selector:
     app: mapwatch-py
   ports:
-    - port: 8000
-      targetPort: 8000
-
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: mapwatch-data
-spec:
-  accessModes: [ReadWriteOnce]
-  resources:
-    requests:
-      storage: 1Gi
+    - port: 80
+      targetPort: 80

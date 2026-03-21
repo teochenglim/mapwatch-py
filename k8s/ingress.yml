@@ -1,48 +1,45 @@
 ---
-# Ingress — nginx-ingress controller
-# For Traefik: see traefik annotations below (commented out)
+# Ingress — no rewrite rules needed; each pod's nginx sidecar handles its own prefix.
+#
+# nginx-ingress controller (default):
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: mapwatch-ingress
-  annotations:
-    # nginx-ingress: strip path prefix before forwarding
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
-    # ── Traefik alternative (uncomment and remove nginx annotations) ──────────
-    # traefik.ingress.kubernetes.io/router.middlewares: mapwatch-strip-mapwatch@kubernetescrd,mapwatch-strip-tilemap@kubernetescrd
 spec:
   rules:
     - http:
         paths:
-          - path: /department/mapwatch-py(/|$)(.*)
-            pathType: ImplementationSpecific
+          - path: /department/mapwatch-py
+            pathType: Prefix
             backend:
               service:
                 name: mapwatch-py
                 port:
-                  number: 8000
-          - path: /department/tilemap-server(/|$)(.*)
-            pathType: ImplementationSpecific
+                  number: 80
+          - path: /department/tilemap-server
+            pathType: Prefix
             backend:
               service:
                 name: tilemap-server
                 port:
                   number: 80
 
----
-# Traefik strip-prefix middlewares (only needed if using Traefik)
+# ── Traefik IngressRoute alternative (uncomment if using Traefik) ─────────────
 # apiVersion: traefik.io/v1alpha1
-# kind: Middleware
+# kind: IngressRoute
 # metadata:
-#   name: strip-mapwatch
+#   name: mapwatch-ingress
 # spec:
-#   stripPrefix:
-#     prefixes: ["/department/mapwatch-py"]
-# ---
-# apiVersion: traefik.io/v1alpha1
-# kind: Middleware
-# metadata:
-#   name: strip-tilemap
-# spec:
-#   stripPrefix:
-#     prefixes: ["/department/tilemap-server"]
+#   entryPoints: [web]
+#   routes:
+#     - match: PathPrefix(`/department/mapwatch-py`)
+#       kind: Rule
+#       services:
+#         - name: mapwatch-py
+#           port: 80
+#     - match: PathPrefix(`/department/tilemap-server`)
+#       kind: Rule
+#       services:
+#         - name: tilemap-server
+#           port: 80

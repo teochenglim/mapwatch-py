@@ -20,16 +20,14 @@ services:
       context: .
     image: ghcr.io/teochenglim/mapwatch-py:${IMAGE_TAG:-latest}
     environment:
-      # Sub-path the app is mounted at (must match proxy location above)
       ROOT_PATH: /department/mapwatch-py
-      # Full URL to the tilemap-server (change BASE_URL for air-gapped envs)
       TILE_SERVER_URL: "${BASE_URL:-http://localhost:8000}/department/tilemap-server"
       BASE_URL: "${BASE_URL:-http://localhost:8000}"
     restart: unless-stopped
     depends_on:
       - tilemap-server
 
-  # ── tilemap-server — offline tile cache ──────────────────────────────────────
+  # ── tilemap-server — tiles baked into image by CI, no volume needed ──────────
   tilemap-server:
     build:
       context: ./tilemap-server

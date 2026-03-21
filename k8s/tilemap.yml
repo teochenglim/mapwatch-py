@@ -1,12 +1,46 @@
 ---
-# ConfigMap — edit BASE_URL for your air-gapped domain
+# ── Nginx sidecar config — serves tiles under /department/tilemap-server/ ─────
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: tilemap-config
+  name: tilemap-nginx
 data:
-  BASE_URL: "http://localhost:8000"
-  ROOT_PATH: "/department/tilemap-server"
+  nginx.conf: |
+    worker_processes 1;
+    events { worker_connections 256; }
+
+    http {
+      include      /etc/nginx/mime.types;
+      default_type application/octet-stream;
+      sendfile     on;
+      gzip         off;  # PNG tiles are already compressed
+
+      add_header Access-Control-Allow-Origin  "*" always;
+      add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
+      add_header Cache-Control "public, max-age=86400" always;
+
+      server {
+        listen 80;
+        server_name _;
+
+        location /healthz {
+          return 200 "ok\n";
+          add_header Content-Type text/plain;
+        }
+
+        # Tiles served with full prefix path from Ingress
+        location /department/tilemap-server/ {
+          alias /tiles/;
+          try_files $uri =404;
+          add_header X-Tile-Source "local-cache" always;
+        }
+
+        location / {
+          return 404 "tile not found\n";
+          add_header Content-Type text/plain;
+        }
+      }
+    }
 
 ---
 apiVersion: apps/v1
@@ -23,20 +57,39 @@ spec:
       labels:
         app: tilemap-server
     spec:
-      containers:
-        - name: tilemap-server
+      initContainers:
+        # Copy tiles baked into the CI image into the shared emptyDir
+        - name: tile-data
           image: ghcr.io/teochenglim/mapwatch-py/tilemap-server:v1
+          command: ["/bin/sh", "-c", "cp -r /tiles/. /shared-tiles/"]
+          volumeMounts:
+            - name: tiles
+              mountPath: /shared-tiles
+
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
           ports:
             - containerPort: 80
-          envFrom:
-            - configMapRef:
-                name: tilemap-config
+          volumeMounts:
+            - name: nginx-conf
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+            - name: tiles
+              mountPath: /tiles
           readinessProbe:
             httpGet:
               path: /healthz
               port: 80
             initialDelaySeconds: 3
             periodSeconds: 10
+
+      volumes:
+        - name: tiles
+          emptyDir: {}
+        - name: nginx-conf
+          configMap:
+            name: tilemap-nginx
 
 ---
 apiVersion: v1
