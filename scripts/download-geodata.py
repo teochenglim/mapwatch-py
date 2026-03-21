@@ -102,7 +102,6 @@ if __name__ == "__main__":
         "layers",
         nargs="*",
         default=ALL_LAYERS,
-        choices=ALL_LAYERS,
         metavar="LAYER",
         help=f"Layers to download (default: all). Choices: {', '.join(ALL_LAYERS)}",
     )
