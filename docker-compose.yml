@@ -11,7 +11,9 @@ services:
       - "8000:8000"
     depends_on:
       - app
-      - tilemap-server
+      - tilemap-dark
+      - tilemap-light
+      - tilemap-streets
     restart: unless-stopped
 
   # ── mapwatch-py app ───────────────────────────────────────────────────────────
@@ -25,13 +27,33 @@ services:
       BASE_URL: "${BASE_URL:-http://localhost:8000}"
     restart: unless-stopped
     depends_on:
-      - tilemap-server
+      - tilemap-dark
+      - tilemap-light
+      - tilemap-streets
 
-  # ── tilemap-server — tiles baked into image by CI, no volume needed ──────────
-  tilemap-server:
+  # ── tilemap-server — one container per layer, tiles baked in by CI ───────────
+  tilemap-dark:
     build:
-      context: ./tilemap-server
-    image: ghcr.io/teochenglim/mapwatch-py/tilemap-server:${IMAGE_TAG:-latest}
+      context: ./tilemap-server-dark
+    image: ghcr.io/teochenglim/mapwatch-py/tilemap-server-dark:${IMAGE_TAG:-latest}
+    environment:
+      BASE_URL: "${BASE_URL:-http://localhost:8000}"
+      ROOT_PATH: /department/tilemap-server
+    restart: unless-stopped
+
+  tilemap-light:
+    build:
+      context: ./tilemap-server-light
+    image: ghcr.io/teochenglim/mapwatch-py/tilemap-server-light:${IMAGE_TAG:-latest}
+    environment:
+      BASE_URL: "${BASE_URL:-http://localhost:8000}"
+      ROOT_PATH: /department/tilemap-server
+    restart: unless-stopped
+
+  tilemap-streets:
+    build:
+      context: ./tilemap-server-streets
+    image: ghcr.io/teochenglim/mapwatch-py/tilemap-server-streets:${IMAGE_TAG:-latest}
     environment:
       BASE_URL: "${BASE_URL:-http://localhost:8000}"
       ROOT_PATH: /department/tilemap-server

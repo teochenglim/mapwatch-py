@@ -17,11 +17,25 @@ spec:
                 name: mapwatch-py
                 port:
                   number: 80
-          - path: /department/tilemap-server
+          - path: /department/tilemap-server/dark
             pathType: Prefix
             backend:
               service:
-                name: tilemap-server
+                name: tilemap-dark
+                port:
+                  number: 80
+          - path: /department/tilemap-server/light
+            pathType: Prefix
+            backend:
+              service:
+                name: tilemap-light
+                port:
+                  number: 80
+          - path: /department/tilemap-server/streets
+            pathType: Prefix
+            backend:
+              service:
+                name: tilemap-streets
                 port:
                   number: 80
 
@@ -38,8 +52,18 @@ spec:
 #       services:
 #         - name: mapwatch-py
 #           port: 80
-#     - match: PathPrefix(`/department/tilemap-server`)
+#     - match: PathPrefix(`/department/tilemap-server/dark`)
 #       kind: Rule
 #       services:
-#         - name: tilemap-server
+#         - name: tilemap-dark
+#           port: 80
+#     - match: PathPrefix(`/department/tilemap-server/light`)
+#       kind: Rule
+#       services:
+#         - name: tilemap-light
+#           port: 80
+#     - match: PathPrefix(`/department/tilemap-server/streets`)
+#       kind: Rule
+#       services:
+#         - name: tilemap-streets
 #           port: 80

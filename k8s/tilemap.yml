@@ -43,29 +43,28 @@ data:
     }
 
 ---
+# ── tilemap-dark ──────────────────────────────────────────────────────────────
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: tilemap-server
+  name: tilemap-dark
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: tilemap-server
+      app: tilemap-dark
   template:
     metadata:
       labels:
-        app: tilemap-server
+        app: tilemap-dark
     spec:
       initContainers:
-        # Copy tiles baked into the CI image into the shared emptyDir
         - name: tile-data
-          image: ghcr.io/teochenglim/mapwatch-py/tilemap-server:v1
+          image: ghcr.io/teochenglim/mapwatch-py/tilemap-server-dark:v1
           command: ["/bin/sh", "-c", "cp -r /tiles/. /shared-tiles/"]
           volumeMounts:
             - name: tiles
               mountPath: /shared-tiles
-
       containers:
         - name: nginx
           image: nginx:1.27-alpine
@@ -83,7 +82,6 @@ spec:
               port: 80
             initialDelaySeconds: 3
             periodSeconds: 10
-
       volumes:
         - name: tiles
           emptyDir: {}
@@ -95,10 +93,128 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: tilemap-server
+  name: tilemap-dark
 spec:
   selector:
-    app: tilemap-server
+    app: tilemap-dark
+  ports:
+    - port: 80
+      targetPort: 80
+
+---
+# ── tilemap-light ─────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tilemap-light
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tilemap-light
+  template:
+    metadata:
+      labels:
+        app: tilemap-light
+    spec:
+      initContainers:
+        - name: tile-data
+          image: ghcr.io/teochenglim/mapwatch-py/tilemap-server-light:v1
+          command: ["/bin/sh", "-c", "cp -r /tiles/. /shared-tiles/"]
+          volumeMounts:
+            - name: tiles
+              mountPath: /shared-tiles
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: nginx-conf
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+            - name: tiles
+              mountPath: /tiles
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 80
+            initialDelaySeconds: 3
+            periodSeconds: 10
+      volumes:
+        - name: tiles
+          emptyDir: {}
+        - name: nginx-conf
+          configMap:
+            name: tilemap-nginx
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tilemap-light
+spec:
+  selector:
+    app: tilemap-light
+  ports:
+    - port: 80
+      targetPort: 80
+
+---
+# ── tilemap-streets ───────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tilemap-streets
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tilemap-streets
+  template:
+    metadata:
+      labels:
+        app: tilemap-streets
+    spec:
+      initContainers:
+        - name: tile-data
+          image: ghcr.io/teochenglim/mapwatch-py/tilemap-server-streets:v1
+          command: ["/bin/sh", "-c", "cp -r /tiles/. /shared-tiles/"]
+          volumeMounts:
+            - name: tiles
+              mountPath: /shared-tiles
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: nginx-conf
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+            - name: tiles
+              mountPath: /tiles
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 80
+            initialDelaySeconds: 3
+            periodSeconds: 10
+      volumes:
+        - name: tiles
+          emptyDir: {}
+        - name: nginx-conf
+          configMap:
+            name: tilemap-nginx
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tilemap-streets
+spec:
+  selector:
+    app: tilemap-streets
   ports:
     - port: 80
       targetPort: 80
