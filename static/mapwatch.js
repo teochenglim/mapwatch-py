@@ -22,6 +22,9 @@
     ? String(window.MW_TILE_BASE).replace(/\/$/, '')
     : BASE + '/tiles';
 
+  // Default until /api/config loads; overridden by cfg.max_zoom (MAX_ZOOM env var).
+  let MAX_ZOOM = 19;
+
   // Populated from /api/config → tiles_config once config loads.
   // Keyed by theme id, value: { url, attribution }
   let THEMES = {};
@@ -84,7 +87,7 @@
     // replace both the URL and attribution with the correct values.
     tileLayer = L.tileLayer(TILE_BASE + '/dark/{z}/{x}/{y}.png', {
       attribution: '',
-      maxZoom: 19,
+      maxZoom: MAX_ZOOM,
     }).addTo(map);
 
     clusterGroup = L.markerClusterGroup({
@@ -136,9 +139,9 @@
       map.on('mouseout', () => { coordEl.style.display = 'none'; });
     }
 
-    // Set initial zoom slider value.
+    // Set initial zoom slider value and enforce MAX_ZOOM as its upper bound.
     const slider = document.getElementById('zoom-slider');
-    if (slider) slider.value = map.getZoom();
+    if (slider) { slider.max = MAX_ZOOM; slider.value = map.getZoom(); }
 
     // Fetch runtime config (Prometheus external URL, locations, layers, etc.) from server.
     fetchConfig();
@@ -161,6 +164,14 @@
               : 'Tiles fetched from CDN';
             el.dataset.mode = cfg.tile_mode;
           }
+        }
+
+        // Apply server-side MAX_ZOOM (from MAX_ZOOM env var)
+        if (cfg.max_zoom) {
+          MAX_ZOOM = cfg.max_zoom;
+          tileLayer.options.maxZoom = MAX_ZOOM;
+          const slider = document.getElementById('zoom-slider');
+          if (slider) slider.max = MAX_ZOOM;
         }
 
         // Build tile theme buttons + THEMES map from config

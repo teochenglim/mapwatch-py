@@ -47,6 +47,7 @@ TILE_SERVER_URL = os.getenv("TILE_SERVER_URL", "").rstrip("/")
 #   offline — proxy returns 404 on cache miss instead of hitting the CDN.
 #             Used when tile images are baked into dedicated tilemap-server containers.
 TILE_MODE = os.getenv("TILE_MODE", "online")  # "online" | "offline"
+MAX_ZOOM  = int(os.getenv("MAX_ZOOM", "19"))  # maximum zoom level served and shown in UI
 
 # ── Load layer and tile config from YAML ──────────────────────────────────────
 
@@ -192,6 +193,7 @@ def api_config() -> JSONResponse:
         "layers_config":   LAYERS_CONFIG,
         "tiles_config":    TILES_CONFIG,
         "tile_mode":       TILE_MODE,
+        "max_zoom":        MAX_ZOOM,
         "modules":         {},
         "locations":       [],
         "heatmapRegions":  [],
