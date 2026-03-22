@@ -138,15 +138,15 @@ jobs:
   #
   #   z10–z17  : single job per layer    (fast — a few thousand tiles)
   #   z18      : 2 jobs per layer        (split x-range in half)
-  #   z19      : 6 jobs per layer        (split x-range into sixths)
+  #   z19      : 24 jobs per layer       (split x-range into 24ths)
   #
-  # Total: 9 bands × 3 layers = 27 parallel download jobs.
+  # Total: 27 bands × 3 layers = 81 parallel download jobs.
   # Each job targets a distinct, non-overlapping set of tiles so artifacts merge
   # cleanly. The GitHub Actions cache avoids re-downloading across runs.
   #
-  # Wall-clock estimate (assuming z18 full ≈ 6 h per layer):
-  #   z19/6-parts ≈ 4×6 h / 6 ≈ 4 h   ← dominant job
-  #   Total wall clock: ~4–5 h (download) + ~30 min (build) ≈ ~5 h
+  # Wall-clock estimate (assuming z19 full ≈ 24 h per layer):
+  #   z19/24-parts ≈ 24 h / 24 ≈ 1 h   ← dominant job
+  #   Total wall clock: ~1 h (download) + ~30 min (build) ≈ ~1.5 h
 
   download-tiles:
     name: tiles ${{ matrix.layer }} ${{ matrix.band.name }}
@@ -162,13 +162,31 @@ jobs:
           # z18: split x-range into 2 parts (~3 h each)
           - { name: z18-p1, zoom_min: 18, zoom_max: 18, x_part: "1/2" }
           - { name: z18-p2, zoom_min: 18, zoom_max: 18, x_part: "2/2" }
-          # z19: split x-range into 6 parts (~4 h each)
-          - { name: z19-p1, zoom_min: 19, zoom_max: 19, x_part: "1/6" }
-          - { name: z19-p2, zoom_min: 19, zoom_max: 19, x_part: "2/6" }
-          - { name: z19-p3, zoom_min: 19, zoom_max: 19, x_part: "3/6" }
-          - { name: z19-p4, zoom_min: 19, zoom_max: 19, x_part: "4/6" }
-          - { name: z19-p5, zoom_min: 19, zoom_max: 19, x_part: "5/6" }
-          - { name: z19-p6, zoom_min: 19, zoom_max: 19, x_part: "6/6" }
+          # z19: split x-range into 24 parts (~1 h each)
+          - { name: z19-p1,  zoom_min: 19, zoom_max: 19, x_part: "1/24" }
+          - { name: z19-p2,  zoom_min: 19, zoom_max: 19, x_part: "2/24" }
+          - { name: z19-p3,  zoom_min: 19, zoom_max: 19, x_part: "3/24" }
+          - { name: z19-p4,  zoom_min: 19, zoom_max: 19, x_part: "4/24" }
+          - { name: z19-p5,  zoom_min: 19, zoom_max: 19, x_part: "5/24" }
+          - { name: z19-p6,  zoom_min: 19, zoom_max: 19, x_part: "6/24" }
+          - { name: z19-p7,  zoom_min: 19, zoom_max: 19, x_part: "7/24" }
+          - { name: z19-p8,  zoom_min: 19, zoom_max: 19, x_part: "8/24" }
+          - { name: z19-p9,  zoom_min: 19, zoom_max: 19, x_part: "9/24" }
+          - { name: z19-p10, zoom_min: 19, zoom_max: 19, x_part: "10/24" }
+          - { name: z19-p11, zoom_min: 19, zoom_max: 19, x_part: "11/24" }
+          - { name: z19-p12, zoom_min: 19, zoom_max: 19, x_part: "12/24" }
+          - { name: z19-p13, zoom_min: 19, zoom_max: 19, x_part: "13/24" }
+          - { name: z19-p14, zoom_min: 19, zoom_max: 19, x_part: "14/24" }
+          - { name: z19-p15, zoom_min: 19, zoom_max: 19, x_part: "15/24" }
+          - { name: z19-p16, zoom_min: 19, zoom_max: 19, x_part: "16/24" }
+          - { name: z19-p17, zoom_min: 19, zoom_max: 19, x_part: "17/24" }
+          - { name: z19-p18, zoom_min: 19, zoom_max: 19, x_part: "18/24" }
+          - { name: z19-p19, zoom_min: 19, zoom_max: 19, x_part: "19/24" }
+          - { name: z19-p20, zoom_min: 19, zoom_max: 19, x_part: "20/24" }
+          - { name: z19-p21, zoom_min: 19, zoom_max: 19, x_part: "21/24" }
+          - { name: z19-p22, zoom_min: 19, zoom_max: 19, x_part: "22/24" }
+          - { name: z19-p23, zoom_min: 19, zoom_max: 19, x_part: "23/24" }
+          - { name: z19-p24, zoom_min: 19, zoom_max: 19, x_part: "24/24" }
 
     steps:
       - name: Checkout
