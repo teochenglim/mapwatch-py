@@ -7,11 +7,12 @@ on:
   pull_request:
     branches: [main]
 
-  # Allow manually re-running to refresh the tile cache
+  # Allow manually re-running to refresh the tile cache.
+  # Bump tile_cache_bust to force a fresh download of all tiles.
   workflow_dispatch:
     inputs:
       tile_cache_bust:
-        description: 'Bump this number to force a fresh tile download (e.g. 2)'
+        description: 'Bump to force a fresh tile download (e.g. 2)'
         required: false
         default: '1'
 
@@ -19,10 +20,6 @@ env:
   REGISTRY:    ghcr.io
   APP_IMAGE:   ghcr.io/teochenglim/mapwatch-py
   PROXY_IMAGE: ghcr.io/teochenglim/mapwatch-py/proxy
-
-  # Tile download settings — z19 is the max for CartoDB and OSM
-  TILE_ZOOM_MIN: '10'
-  TILE_ZOOM_MAX: '18'
 
 jobs:
 
@@ -134,44 +131,140 @@ jobs:
           cache-from: type=gha
           cache-to:   type=gha,mode=max
 
-  # ── Build tilemap-server images (one per layer, tiles baked in) ─────────────
-  build-tilemap-dark:
+  # ── Download tiles (parallelised by layer × zoom band) ───────────────────────
+  #
+  # Tile count grows ~4× per zoom level. At z19, Singapore has ~330 k tiles per
+  # layer — too slow for one sequential job. Strategy:
+  #
+  #   z10–z17  : single job per layer    (fast — a few thousand tiles)
+  #   z18      : 2 jobs per layer        (split x-range in half)
+  #   z19      : 6 jobs per layer        (split x-range into sixths)
+  #
+  # Total: 9 bands × 3 layers = 27 parallel download jobs.
+  # Each job targets a distinct, non-overlapping set of tiles so artifacts merge
+  # cleanly. The GitHub Actions cache avoids re-downloading across runs.
+  #
+  # Wall-clock estimate (assuming z18 full ≈ 6 h per layer):
+  #   z19/6-parts ≈ 4×6 h / 6 ≈ 4 h   ← dominant job
+  #   Total wall clock: ~4–5 h (download) + ~30 min (build) ≈ ~5 h
+
+  download-tiles:
+    name: tiles ${{ matrix.layer }} ${{ matrix.band.name }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
+
+    strategy:
+      fail-fast: false   # don't cancel siblings if one part fails
+      matrix:
+        layer: [dark, light, streets]
+        band:
+          # z10–z17: tiny combined — all fit in one fast job
+          - { name: low,    zoom_min: 10, zoom_max: 17, x_part: ""  }
+          # z18: split x-range into 2 parts (~3 h each)
+          - { name: z18-p1, zoom_min: 18, zoom_max: 18, x_part: "1/2" }
+          - { name: z18-p2, zoom_min: 18, zoom_max: 18, x_part: "2/2" }
+          # z19: split x-range into 6 parts (~4 h each)
+          - { name: z19-p1, zoom_min: 19, zoom_max: 19, x_part: "1/6" }
+          - { name: z19-p2, zoom_min: 19, zoom_max: 19, x_part: "2/6" }
+          - { name: z19-p3, zoom_min: 19, zoom_max: 19, x_part: "3/6" }
+          - { name: z19-p4, zoom_min: 19, zoom_max: 19, x_part: "4/6" }
+          - { name: z19-p5, zoom_min: 19, zoom_max: 19, x_part: "5/6" }
+          - { name: z19-p6, zoom_min: 19, zoom_max: 19, x_part: "6/6" }
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build tile cache key
-        id: tile-key
-        run: |
-          bust="${{ github.event.inputs.tile_cache_bust || '1' }}"
-          echo "key=sg-tiles-dark-z${TILE_ZOOM_MIN}-z${TILE_ZOOM_MAX}-v${bust}" >> "$GITHUB_OUTPUT"
-
+      # Restore previously downloaded tiles for this exact band.
+      # Cache key includes bust counter so a manual re-run forces fresh download.
       - name: Restore tile cache
-        id: tile-cache
+        id: cache
         uses: actions/cache@v4
         with:
-          path: tilemap-server-dark/tiles
-          key: ${{ steps.tile-key.outputs.key }}
+          path: tilemap-server-${{ matrix.layer }}/tiles
+          key: sg-tiles-${{ matrix.layer }}-${{ matrix.band.name }}-v${{ github.event.inputs.tile_cache_bust || '1' }}
 
-      - name: Download dark tiles
-        if: steps.tile-cache.outputs.cache-hit != 'true'
+      - name: Download tiles
+        if: steps.cache.outputs.cache-hit != 'true'
         run: |
-          chmod +x tilemap-server-dark/download-sg-tiles.sh
-          tilemap-server-dark/download-sg-tiles.sh \
-            --zoom-min "$TILE_ZOOM_MIN" \
-            --zoom-max "$TILE_ZOOM_MAX" \
-            --layers   dark \
-            --out      tilemap-server-dark/tiles
+          chmod +x tilemap-server-${{ matrix.layer }}/download-sg-tiles.sh
+
+          X_PART_ARG=""
+          if [ -n "${{ matrix.band.x_part }}" ]; then
+            X_PART_ARG="--x-part ${{ matrix.band.x_part }}"
+          fi
+
+          # CartoDB: 2–4 parallel is safe.
+          # OSM (streets): keep parallel 1 — they request ≤2 req/s.
+          PARALLEL=1
+          if [ "${{ matrix.layer }}" != "streets" ]; then
+            PARALLEL=4
+          fi
+
+          tilemap-server-${{ matrix.layer }}/download-sg-tiles.sh \
+            --zoom-min  ${{ matrix.band.zoom_min }} \
+            --zoom-max  ${{ matrix.band.zoom_max }} \
+            --layers    ${{ matrix.layer }} \
+            --out       tilemap-server-${{ matrix.layer }}/tiles \
+            --parallel  "$PARALLEL" \
+            $X_PART_ARG
 
       - name: Show tile count
         run: |
-          total=$(find tilemap-server-dark/tiles -name '*.png' | wc -l)
-          size=$(du -sh tilemap-server-dark/tiles | cut -f1)
-          echo "dark tiles: ${total} files, ${size}"
+          total=$(find tilemap-server-${{ matrix.layer }}/tiles -name '*.png' 2>/dev/null | wc -l || echo 0)
+          size=$(du -sh tilemap-server-${{ matrix.layer }}/tiles 2>/dev/null | cut -f1 || echo "0")
+          echo "${{ matrix.layer }} / ${{ matrix.band.name }}: ${total} tiles, ${size}"
+
+      # Upload tiles as artifact so the build job can merge all bands together.
+      # PNGs are already compressed — skip re-compression (compression-level: 0).
+      - name: Upload tiles as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tiles-${{ matrix.layer }}-${{ matrix.band.name }}
+          path: tilemap-server-${{ matrix.layer }}/tiles/
+          compression-level: 0
+          if-no-files-found: error
+
+  # ── Build tilemap-server images (one per layer, all zoom bands merged) ───────
+  #
+  # Runs after ALL download-tiles matrix jobs complete.
+  # Downloads every artifact for this layer, merges into one tile tree,
+  # then bakes it into the Docker image.
+
+  build-tilemap:
+    name: build tilemap-server-${{ matrix.layer }}
+    needs: [download-tiles]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        layer: [dark, light, streets]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Download and merge all band artifacts for this layer into one directory.
+      # merge-multiple: true flattens all matching artifacts into the target path.
+      - name: Download and merge tile artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: tiles-${{ matrix.layer }}-*
+          path: tilemap-server-${{ matrix.layer }}/tiles/
+          merge-multiple: true
+
+      - name: Verify merged tile count
+        run: |
+          total=$(find tilemap-server-${{ matrix.layer }}/tiles -name '*.png' | wc -l)
+          size=$(du -sh  tilemap-server-${{ matrix.layer }}/tiles | cut -f1)
+          echo "${{ matrix.layer }}: ${total} total tiles merged, ${size}"
+          # Fail fast if suspiciously few tiles — likely a download problem
+          if [ "$total" -lt 100 ]; then
+            echo "ERROR: fewer than 100 tiles found — aborting build" >&2
+            exit 1
+          fi
 
       - name: Get 8-char commit SHA
         id: sha
@@ -195,7 +288,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/teochenglim/mapwatch-py/tilemap-server-dark
+          images: ghcr.io/teochenglim/mapwatch-py/tilemap-server-${{ matrix.layer }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -205,169 +298,13 @@ jobs:
             type=raw,value=${{ steps.sha.outputs.short }}
             type=raw,value=v1
 
-      - name: Build and push tilemap-server-dark
+      - name: Build and push tilemap-server-${{ matrix.layer }}
         uses: docker/build-push-action@v5
         with:
-          context: ./tilemap-server-dark
+          context: ./tilemap-server-${{ matrix.layer }}
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags:   ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-
-  build-tilemap-light:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Build tile cache key
-        id: tile-key
-        run: |
-          bust="${{ github.event.inputs.tile_cache_bust || '1' }}"
-          echo "key=sg-tiles-light-z${TILE_ZOOM_MIN}-z${TILE_ZOOM_MAX}-v${bust}" >> "$GITHUB_OUTPUT"
-
-      - name: Restore tile cache
-        id: tile-cache
-        uses: actions/cache@v4
-        with:
-          path: tilemap-server-light/tiles
-          key: ${{ steps.tile-key.outputs.key }}
-
-      - name: Download light tiles
-        if: steps.tile-cache.outputs.cache-hit != 'true'
-        run: |
-          chmod +x tilemap-server-light/download-sg-tiles.sh
-          tilemap-server-light/download-sg-tiles.sh \
-            --zoom-min "$TILE_ZOOM_MIN" \
-            --zoom-max "$TILE_ZOOM_MAX" \
-            --layers   light \
-            --out      tilemap-server-light/tiles
-
-      - name: Show tile count
-        run: |
-          total=$(find tilemap-server-light/tiles -name '*.png' | wc -l)
-          size=$(du -sh tilemap-server-light/tiles | cut -f1)
-          echo "light tiles: ${total} files, ${size}"
-
-      - name: Get 8-char commit SHA
-        id: sha
-        run: echo "short=$(git rev-parse --short=8 HEAD)" >> "$GITHUB_OUTPUT"
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/teochenglim/mapwatch-py/tilemap-server-light
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=${{ steps.sha.outputs.short }}
-            type=raw,value=v1
-
-      - name: Build and push tilemap-server-light
-        uses: docker/build-push-action@v5
-        with:
-          context: ./tilemap-server-light
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
-          tags:   ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-
-  build-tilemap-streets:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Build tile cache key
-        id: tile-key
-        run: |
-          bust="${{ github.event.inputs.tile_cache_bust || '1' }}"
-          echo "key=sg-tiles-streets-z${TILE_ZOOM_MIN}-z${TILE_ZOOM_MAX}-v${bust}" >> "$GITHUB_OUTPUT"
-
-      - name: Restore tile cache
-        id: tile-cache
-        uses: actions/cache@v4
-        with:
-          path: tilemap-server-streets/tiles
-          key: ${{ steps.tile-key.outputs.key }}
-
-      - name: Download streets tiles
-        if: steps.tile-cache.outputs.cache-hit != 'true'
-        run: |
-          chmod +x tilemap-server-streets/download-sg-tiles.sh
-          tilemap-server-streets/download-sg-tiles.sh \
-            --zoom-min "$TILE_ZOOM_MIN" \
-            --zoom-max "$TILE_ZOOM_MAX" \
-            --layers   streets \
-            --out      tilemap-server-streets/tiles
-
-      - name: Show tile count
-        run: |
-          total=$(find tilemap-server-streets/tiles -name '*.png' | wc -l)
-          size=$(du -sh tilemap-server-streets/tiles | cut -f1)
-          echo "streets tiles: ${total} files, ${size}"
-
-      - name: Get 8-char commit SHA
-        id: sha
-        run: echo "short=$(git rev-parse --short=8 HEAD)" >> "$GITHUB_OUTPUT"
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/teochenglim/mapwatch-py/tilemap-server-streets
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=${{ steps.sha.outputs.short }}
-            type=raw,value=v1
-
-      - name: Build and push tilemap-server-streets
-        uses: docker/build-push-action@v5
-        with:
-          context: ./tilemap-server-streets
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
-          tags:   ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max

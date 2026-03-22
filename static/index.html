@@ -98,6 +98,12 @@
     }
     #ws-status.connected { background: #3fb950; }
 
+    #tile-mode-indicator {
+      font-size: 10px; color: #8b949e; white-space: nowrap; cursor: default;
+    }
+    #tile-mode-indicator[data-mode="offline"] { color: #e3b341; }
+    #tile-mode-indicator[data-mode="online"]  { color: #3fb950; }
+
     /* ── Side panel ── */
     #panel {
       position: absolute;
@@ -260,34 +266,24 @@
     <h1>MapWatch</h1>
     <div class="tb-sep"></div>
     <div id="ws-status" title="WebSocket status"></div>
+    <div id="tile-mode-indicator" title="Tile serving mode"></div>
 
     <div class="tb-sep"></div>
 
-    <!-- Tile layer -->
-    <button class="tb-btn active" id="btn-dark"    onclick="MapWatch.setTheme('dark')">Dark</button>
-    <button class="tb-btn"        id="btn-light"   onclick="MapWatch.setTheme('light')">Light</button>
-    <button class="tb-btn"        id="btn-streets" onclick="MapWatch.setTheme('streets')">Streets</button>
+    <!-- Tile basemap buttons — populated from config/tiles.yml via /api/config -->
+    <div id="tb-themes"></div>
 
     <div class="tb-sep"></div>
 
     <!-- Navigation -->
     <button class="tb-btn" title="Reset to full Singapore view" onclick="MapWatch.resetToSG()">&#8635; Home</button>
-    <input  id="zoom-slider" type="range" min="10" max="18" step="1" value="12"
+    <input  id="zoom-slider" type="range" min="10" max="19" step="1" value="12"
             title="Zoom level" oninput="MapWatch.setZoom(this.value)" />
 
     <div class="tb-sep"></div>
 
-    <!-- GeoJSON overlay layers — lazy-loaded on first toggle -->
-    <button class="tb-btn" id="btn-layer-division"
-            onclick="MapWatch.toggleLayer('division',this)">Divisions</button>
-    <button class="tb-btn" id="btn-layer-roads"
-            onclick="MapWatch.toggleLayer('roads',this)">Roads</button>
-    <button class="tb-btn" id="btn-layer-cycling"
-            onclick="MapWatch.toggleLayer('cycling',this)">Cycling</button>
-    <button class="tb-btn" id="btn-layer-mrt"
-            onclick="MapWatch.toggleLayer('mrt',this)">MRT</button>
-    <button class="tb-btn" id="btn-layer-busstops"
-            onclick="MapWatch.toggleLayer('busStops',this)">Bus Stops</button>
+    <!-- GeoJSON overlay layer buttons — populated from config/layers.yml via /api/config -->
+    <div id="tb-layers"></div>
 
     <div class="tb-sep"></div>
 

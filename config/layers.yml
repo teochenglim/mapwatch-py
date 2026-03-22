@@ -1,0 +1,161 @@
+# GeoJSON overlay layers shown on the map.
+# Each entry becomes one toolbar button, one lazy-loaded Leaflet layer,
+# and one downloadable GeoJSON file.
+#
+# Fields:
+#   id          - unique camelCase key (must match JS variable conventions)
+#   label       - button text shown in the toolbar
+#   file        - geojson filename saved under /data/ (without .geojson extension)
+#   source      - where to download the data:
+#       type: datagov   → Singapore data.gov.sg API; provide dataset_id
+#       type: direct    → any public GeoJSON URL; provide url
+#   style       - how to render on the map:
+#       type: polygon         → filled polygon + stroke
+#       type: line            → stroke only (roads, MRT, cycling)
+#       type: line_conditional → line whose weight varies by highway property (roads)
+#       type: point           → circle marker (bus stops)
+#       color, fill_color, weight, opacity, fill_opacity, dash_array
+#   tooltip     - hover tooltip config:
+#       name_props   - try these feature properties in order for the main title
+#       title_prefix - (optional) prepend to name (e.g. "Bus " for bus routes)
+#       sub_props    - try these for the subtitle line
+#       detail_props - list of {label, prop} for extra rows
+#   enabled     - if true, layer is toggled on automatically on page load
+#   select      - drag-to-select config:
+#       restore_style  - style to restore after selection highlight is cleared
+#       exclude_contains - {props: [...], value: str} — skip features where
+#                          any of the listed props contains this substring
+
+layers:
+  - id: division
+    label: Divisions
+    enabled: true
+    file: sg-npc-boundary
+    source:
+      type: datagov
+      dataset_id: d_89b44df21fccc4f51390eaff16aa1fe8
+    style:
+      type: polygon
+      color: "#4fc3f7"
+      weight: 1.5
+      opacity: 0.8
+      fill_color: "#4fc3f7"
+      fill_opacity: 0.06
+    tooltip:
+      name_props: [NPC_NAME, Name, name]
+      sub_props: [DIVISION, Division]
+    select:
+      restore_style:
+        color: "#4fc3f7"
+        opacity: 0.8
+        fill_opacity: 0.06
+      exclude_contains:
+        props: [DIVISION, Division]
+        value: "Sect"
+
+  - id: roads
+    label: Roads
+    enabled: false
+    file: sg-roads
+    source:
+      type: datagov
+      dataset_id: d_10480c0b59e65663dfae1028ff4aa8bb
+    style:
+      type: line_conditional   # weight 3 for motorway/trunk, 2 otherwise
+      color: "#f97316"
+      opacity: 0.65
+    select:
+      restore_style:
+        color: "#f97316"
+        opacity: 0.65
+
+  - id: cycling
+    label: Cycling
+    enabled: false
+    file: sg-cycling
+    source:
+      type: datagov
+      dataset_id: d_8f468b25193f64be8a16fa7d8f60f553
+    style:
+      type: line
+      color: "#4ade80"
+      weight: 2
+      opacity: 0.8
+      dash_array: "6,4"
+    select:
+      restore_style:
+        color: "#4ade80"
+        opacity: 0.8
+
+  - id: mrt
+    label: MRT
+    enabled: false
+    file: sg-mrt
+    source:
+      type: datagov
+      dataset_id: d_222bfc84eb86c7c11994d02f8939da8d
+    style:
+      type: line
+      color: "#e11d48"
+      weight: 3
+      opacity: 0.9
+    tooltip:
+      name_props: [name, ref]
+    select:
+      restore_style:
+        color: "#e11d48"
+        opacity: 0.9
+
+  - id: busStops
+    label: Bus Stops
+    enabled: false
+    file: sg-bus-stops
+    source:
+      type: direct
+      url: "https://data.busrouter.sg/v1/stops.min.geojson"
+    style:
+      type: point
+      color: "#f59e0b"
+      fill_color: "#f59e0b"
+      radius: 3
+      weight: 1
+      opacity: 0.8
+      fill_opacity: 0.6
+    tooltip:
+      name_props: [name, code]
+      sub_props: [road]
+      detail_props:
+        - label: Stop
+          prop: code
+    select:
+      restore_style:
+        fillColor: "#f59e0b"
+        color: "#f59e0b"
+        weight: 1
+        opacity: 0.8
+        fillOpacity: 0.6
+
+  - id: busRoutes
+    label: Bus Routes
+    enabled: false
+    file: sg-bus-routes
+    source:
+      type: direct
+      url: "https://data.busrouter.sg/v1/routes.min.geojson"
+    style:
+      type: line
+      color: "#60a5fa"
+      weight: 1
+      opacity: 0.45
+    tooltip:
+      name_props: [service]
+      title_prefix: "Bus "
+      sub_props: [operator]
+      detail_props:
+        - label: Dir
+          prop: direction
+    select:
+      restore_style:
+        color: "#60a5fa"
+        weight: 1
+        opacity: 0.45

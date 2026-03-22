@@ -24,6 +24,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
+import yaml
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, Response, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -40,25 +41,46 @@ LIB_DIR.mkdir(exist_ok=True)
 ROOT_PATH       = os.getenv("ROOT_PATH", "").rstrip("/")
 TILE_SERVER_URL = os.getenv("TILE_SERVER_URL", "").rstrip("/")
 
-# ── External data sources ─────────────────────────────────────────────────────
+# TILE_MODE controls how the built-in /tiles proxy behaves:
+#   online  — proxy fetches missing tiles from the upstream CDN and caches them.
+#             Used for local dev with internet access.
+#   offline — proxy returns 404 on cache miss instead of hitting the CDN.
+#             Used when tile images are baked into dedicated tilemap-server containers.
+TILE_MODE = os.getenv("TILE_MODE", "online")  # "online" | "offline"
 
-GEOJSON_SOURCES = {
-    "sg-bus-stops":  "https://data.busrouter.sg/v1/stops.min.geojson",
-    "sg-bus-routes": "https://data.busrouter.sg/v1/routes.min.geojson",
+# ── Load layer and tile config from YAML ──────────────────────────────────────
+
+def _load_yaml(path: Path) -> dict:
+    with open(path) as f:
+        return yaml.safe_load(f)
+
+LAYERS_CONFIG: list[dict] = _load_yaml(BASE / "config" / "layers.yml")["layers"]
+TILES_CONFIG:  list[dict] = _load_yaml(BASE / "config" / "tiles.yml")["themes"]
+
+# Build runtime lookup dicts from config so the rest of the code stays unchanged.
+
+GEOJSON_SOURCES: dict[str, str] = {}    # filename → direct URL
+DATAGOV_DATASETS: dict[str, str] = {}   # filename → dataset_id
+_LAYER_FILE_TO_ID: dict[str, str] = {}  # filename → layer id (for /api/config)
+
+for _layer in LAYERS_CONFIG:
+    _file = _layer["file"]
+    _src  = _layer["source"]
+    _LAYER_FILE_TO_ID[_file] = _layer["id"]
+    if _src["type"] == "direct":
+        GEOJSON_SOURCES[_file] = _src["url"]
+    elif _src["type"] == "datagov":
+        DATAGOV_DATASETS[_file] = _src["dataset_id"]
+
+# tile id → upstream URL template (None = non-standard coord order, use proxy_url)
+TILE_SOURCES: dict[str, str | None] = {
+    t["id"]: t.get("source_url") for t in TILES_CONFIG
 }
-
-DATAGOV_DATASETS = {
-    "sg-cycling":      "d_8f468b25193f64be8a16fa7d8f60f553",
-    "sg-mrt":          "d_222bfc84eb86c7c11994d02f8939da8d",
-    "sg-npc-boundary": "d_89b44df21fccc4f51390eaff16aa1fe8",
-    "sg-roads":        "d_10480c0b59e65663dfae1028ff4aa8bb",
-}
-
-TILE_SOURCES = {
-    "dark":      "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-    "light":     "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
-    "streets":   "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-    "satellite": None,  # Esri — y/x swap handled separately
+# tile id → proxy URL (only present when source_url is None)
+TILE_PROXY_URLS: dict[str, str] = {
+    t["id"]: t["proxy_url"]
+    for t in TILES_CONFIG
+    if t.get("proxy_url")
 }
 
 LEAFLET_VER  = "1.9.4"
@@ -118,6 +140,12 @@ app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 
 # ── Index ─────────────────────────────────────────────────────────────────────
 
+@app.get("/service-worker.js", include_in_schema=False)
+def service_worker() -> Response:
+    """Return a no-op service worker so browsers stop logging 404s."""
+    return Response("// no service worker", media_type="application/javascript")
+
+
 @app.get("/", include_in_schema=False)
 def index(request: Request) -> HTMLResponse:
     """Render index.html, injecting base-path config for the frontend."""
@@ -156,26 +184,18 @@ async def websocket_endpoint(ws: WebSocket) -> None:
 def api_config() -> JSONResponse:
     all_names = list(GEOJSON_SOURCES) + list(DATAGOV_DATASETS)
     available = {
-        _layer_key(name): (DATA_DIR / f"{name}.geojson").exists()
+        _LAYER_FILE_TO_ID.get(name, name): (DATA_DIR / f"{name}.geojson").exists()
         for name in all_names
     }
     return JSONResponse({
         "availableLayers": available,
+        "layers_config":   LAYERS_CONFIG,
+        "tiles_config":    TILES_CONFIG,
+        "tile_mode":       TILE_MODE,
         "modules":         {},
         "locations":       [],
         "heatmapRegions":  [],
     })
-
-
-def _layer_key(filename: str) -> str:
-    return {
-        "sg-npc-boundary": "division",
-        "sg-roads":        "roads",
-        "sg-cycling":      "cycling",
-        "sg-mrt":          "mrt",
-        "sg-bus-stops":    "busStops",
-        "sg-bus-routes":   "busRoutes",
-    }.get(filename, filename)
 
 
 # ── /api/geojson/{filename} ───────────────────────────────────────────────────
@@ -221,11 +241,17 @@ async def proxy_tile(layer: str, z: int, x: int, y: int) -> Response:
     if tile_path.exists():
         return FileResponse(tile_path, media_type="image/png")
 
+    # In offline mode the tile should have been pre-downloaded into the tilemap-server
+    # image.  Fetching from CDN would defeat the purpose, so return 404 instead.
+    if TILE_MODE == "offline":
+        raise HTTPException(404, f"tile not in local cache (offline mode): {layer}/{z}/{x}/{y}")
+
+    # Use proxy_url when source_url is null (e.g. Esri uses z/y/x coord order)
+    raw = TILE_SOURCES[layer]
     url = (
-        f"https://server.arcgisonline.com/ArcGIS/rest/services"
-        f"/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-        if layer == "satellite"
-        else TILE_SOURCES[layer].format(z=z, x=x, y=y)
+        TILE_PROXY_URLS[layer].format(z=z, x=x, y=y)
+        if raw is None
+        else raw.format(z=z, x=x, y=y)
     )
 
     try:

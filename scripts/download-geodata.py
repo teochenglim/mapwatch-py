@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
-"""Download all Singapore GeoJSON layers and save to --out directory.
+"""Download all Singapore GeoJSON layers defined in config/layers.yml.
 
-Usage (matches Go version):
+Usage:
   python scripts/download-geodata.py --out /data
   python scripts/download-geodata.py --out ./data division mrt roads cycling busstops
 
-Layers (all downloaded by default):
-  division   — NPC police division boundaries (data.gov.sg)
-  roads      — national road network (data.gov.sg)
-  cycling    — cycling paths (data.gov.sg)
-  mrt        — MRT/LRT rail lines (data.gov.sg)
-  busstops   — bus stops (busrouter.sg)
+Layer IDs come from the 'id' field in config/layers.yml.
+Omit layer arguments to download all layers.
 """
 import argparse
 import asyncio
@@ -18,24 +14,18 @@ import sys
 from pathlib import Path
 
 import httpx
+import yaml
 
-# ── Data sources ──────────────────────────────────────────────────────────────
+# ── Load layer config ──────────────────────────────────────────────────────────
 
-DIRECT_SOURCES = {
-    "busstops": (
-        "sg-bus-stops.geojson",
-        "https://data.busrouter.sg/v1/stops.min.geojson",
-    ),
-}
+_CONFIG_PATH = Path(__file__).parent.parent / "config" / "layers.yml"
 
-DATAGOV_DATASETS = {
-    "division": ("sg-npc-boundary.geojson", "d_89b44df21fccc4f51390eaff16aa1fe8"),
-    "roads":    ("sg-roads.geojson",        "d_10480c0b59e65663dfae1028ff4aa8bb"),
-    "cycling":  ("sg-cycling.geojson",      "d_8f468b25193f64be8a16fa7d8f60f553"),
-    "mrt":      ("sg-mrt.geojson",          "d_222bfc84eb86c7c11994d02f8939da8d"),
-}
+def _load_config() -> list[dict]:
+    with open(_CONFIG_PATH) as f:
+        return yaml.safe_load(f)["layers"]
 
-ALL_LAYERS = list(DIRECT_SOURCES) + list(DATAGOV_DATASETS)
+LAYERS = _load_config()
+ALL_LAYER_IDS = [layer["id"] for layer in LAYERS]
 
 HEADERS = {"User-Agent": "mapwatch-py/2.0"}
 
@@ -59,35 +49,52 @@ async def _fetch_datagov(client: httpx.AsyncClient, dataset_id: str) -> bytes:
 
 
 async def download_layer(
-    client: httpx.AsyncClient, layer: str, out_dir: Path
+    client: httpx.AsyncClient, layer: dict, out_dir: Path
 ) -> None:
-    if layer in DIRECT_SOURCES:
-        filename, url = DIRECT_SOURCES[layer]
-        print(f"  {layer}: {url}")
+    layer_id = layer["id"]
+    filename  = layer["file"] + ".geojson"
+    source    = layer["source"]
+
+    if source["type"] == "direct":
+        url = source["url"]
+        print(f"  {layer_id}: {url}")
         data = await _fetch(client, url)
-    elif layer in DATAGOV_DATASETS:
-        filename, dataset_id = DATAGOV_DATASETS[layer]
-        print(f"  {layer}: data.gov.sg/{dataset_id}")
+
+    elif source["type"] == "datagov":
+        dataset_id = source["dataset_id"]
+        print(f"  {layer_id}: data.gov.sg/{dataset_id}")
         data = await _fetch_datagov(client, dataset_id)
+
     else:
-        print(f"  {layer}: unknown layer, skipping", file=sys.stderr)
+        print(f"  {layer_id}: unknown source type '{source['type']}', skipping", file=sys.stderr)
         return
 
     dest = out_dir / filename
     dest.write_bytes(data)
-    print(f"  {layer}: saved {dest} ({len(data):,} bytes)")
+    print(f"  {layer_id}: saved {dest} ({len(data):,} bytes)")
 
 
-async def main(layers: list[str], out_dir: Path) -> None:
+async def main(layer_ids: list[str], out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
-    print(f"Downloading {len(layers)} layer(s) to {out_dir} …")
+
+    # Build lookup: id → layer config
+    layer_map = {layer["id"]: layer for layer in LAYERS}
+
+    # Validate requested IDs
+    unknown = [lid for lid in layer_ids if lid not in layer_map]
+    if unknown:
+        print(f"Unknown layer(s): {', '.join(unknown)}", file=sys.stderr)
+        print(f"Available: {', '.join(ALL_LAYER_IDS)}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Downloading {len(layer_ids)} layer(s) to {out_dir} …")
 
     async with httpx.AsyncClient(timeout=60) as client:
-        for layer in layers:
+        for layer_id in layer_ids:
             try:
-                await download_layer(client, layer, out_dir)
+                await download_layer(client, layer_map[layer_id], out_dir)
             except Exception as exc:
-                print(f"  {layer}: FAILED — {exc}", file=sys.stderr)
+                print(f"  {layer_id}: FAILED — {exc}", file=sys.stderr)
                 sys.exit(1)
 
     print("Done.")
@@ -96,14 +103,16 @@ async def main(layers: list[str], out_dir: Path) -> None:
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument(
         "layers",
         nargs="*",
-        default=ALL_LAYERS,
-        metavar="LAYER",
-        help=f"Layers to download (default: all). Choices: {', '.join(ALL_LAYERS)}",
+        default=ALL_LAYER_IDS,
+        metavar="LAYER_ID",
+        help=f"Layer IDs to download (default: all). Choices: {', '.join(ALL_LAYER_IDS)}",
     )
     parser.add_argument(
         "--out", "-o",

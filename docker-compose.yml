@@ -1,60 +1,33 @@
+# Online mode — single container, tiles fetched on-demand from CDN.
+#
+# Usage:
+#   docker compose up           # starts app on http://localhost:8000
+#   docker compose up --build   # rebuild app image first
+#
+# Tile behaviour:
+#   TILE_MODE=online → the built-in /tiles proxy fetches missing tiles from the
+#   upstream CDN and caches them to a local volume.  No tilemap-server containers
+#   needed.  Requires internet access.
+#
+# For offline tile serving (pre-downloaded tiles, no CDN), use:
+#   docker compose -f docker-compose.offline.yml up
+
 services:
 
-  # ── Reverse proxy — routes subpaths to the right backend ─────────────────────
-  # http://localhost:8000/department/mapwatch-py/
-  # http://localhost:8000/department/tilemap-server/
-  proxy:
-    build:
-      context: ./proxy
-    image: ghcr.io/teochenglim/mapwatch-py/proxy:${IMAGE_TAG:-latest}
-    ports:
-      - "8000:8000"
-    depends_on:
-      - app
-      - tilemap-dark
-      - tilemap-light
-      - tilemap-streets
-    restart: unless-stopped
-
-  # ── mapwatch-py app ───────────────────────────────────────────────────────────
   app:
     build:
       context: .
     image: ghcr.io/teochenglim/mapwatch-py:${IMAGE_TAG:-latest}
+    ports:
+      - "${APP_PORT:-8000}:8000"
     environment:
-      ROOT_PATH: /department/mapwatch-py
-      TILE_SERVER_URL: "${BASE_URL:-http://localhost:8000}/department/tilemap-server"
-      BASE_URL: "${BASE_URL:-http://localhost:8000}"
-    restart: unless-stopped
-    depends_on:
-      - tilemap-dark
-      - tilemap-light
-      - tilemap-streets
-
-  # ── tilemap-server — one container per layer, tiles baked in by CI ───────────
-  tilemap-dark:
-    build:
-      context: ./tilemap-server-dark
-    image: ghcr.io/teochenglim/mapwatch-py/tilemap-server-dark:${IMAGE_TAG:-latest}
-    environment:
-      BASE_URL: "${BASE_URL:-http://localhost:8000}"
-      ROOT_PATH: /department/tilemap-server
+      ROOT_PATH:       ""                             # serve at /  (no subpath prefix)
+      TILE_SERVER_URL: ""                             # empty → use built-in CDN proxy
+      TILE_MODE:       online
+      BASE_URL:        "${BASE_URL:-http://localhost:8000}"
+    volumes:
+      - tile-cache:/app/data/tiles                   # persist CDN tile cache across restarts
     restart: unless-stopped
 
-  tilemap-light:
-    build:
-      context: ./tilemap-server-light
-    image: ghcr.io/teochenglim/mapwatch-py/tilemap-server-light:${IMAGE_TAG:-latest}
-    environment:
-      BASE_URL: "${BASE_URL:-http://localhost:8000}"
-      ROOT_PATH: /department/tilemap-server
-    restart: unless-stopped
-
-  tilemap-streets:
-    build:
-      context: ./tilemap-server-streets
-    image: ghcr.io/teochenglim/mapwatch-py/tilemap-server-streets:${IMAGE_TAG:-latest}
-    environment:
-      BASE_URL: "${BASE_URL:-http://localhost:8000}"
-      ROOT_PATH: /department/tilemap-server
-    restart: unless-stopped
+volumes:
+  tile-cache:

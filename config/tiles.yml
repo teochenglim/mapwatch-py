@@ -1,0 +1,40 @@
+# Tile basemap themes.
+# Each entry becomes one tile server, one UI button, and one CI build job.
+#
+# Fields:
+#   id          - unique key; also the URL path segment (/tiles/{id}/z/x/y.png)
+#   label       - button text shown in the toolbar
+#   attribution - shown in the Leaflet attribution control (HTML allowed)
+#   source_url  - upstream CDN URL template; use {z}/{x}/{y} placeholders
+#                 Set to null for non-standard coord order (see proxy_url)
+#   proxy_url   - (optional) alternate URL used by the built-in tile proxy
+#                 when source_url is null (e.g. Esri uses {z}/{y}/{x})
+#   default     - (optional) if true, this theme is active on page load
+
+themes:
+  - id: dark
+    label: Dark
+    attribution: >-
+      &copy; <a href="https://carto.com/">CartoDB</a>
+      &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>
+    source_url: "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
+    default: true
+
+  - id: light
+    label: Light
+    attribution: >-
+      &copy; <a href="https://carto.com/">CartoDB</a>
+      &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>
+    source_url: "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png"
+
+  - id: streets
+    label: Streets
+    attribution: >-
+      &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors
+    source_url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+
+  - id: satellite
+    label: Satellite
+    attribution: "&copy; <a href=\"https://www.esri.com/\">Esri</a>"
+    source_url: null  # Esri uses z/y/x (non-standard) — proxy handles via proxy_url
+    proxy_url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
