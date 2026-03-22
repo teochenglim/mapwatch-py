@@ -1,27 +1,21 @@
-# Offline mode — pre-downloaded tiles served from local directories.
+# Offline mode — tiles served from pre-built GHCR images (no local download needed).
 #
 # Usage:
-#   # 1. Download tiles first (only needed once per zoom change)
-#   make tilemap-download ZOOM_MIN=10 ZOOM_MAX=19 LAYERS=dark
-#
-#   # 2. Start the full stack
 #   docker compose -f docker-compose.offline.yml up
-#   docker compose -f docker-compose.offline.yml up --build   # rebuild app
+#   docker compose -f docker-compose.offline.yml up --build   # rebuild app/proxy
 #
 # Tile behaviour:
 #   TILE_MODE=offline → the built-in /tiles proxy returns 404 on cache miss
 #   instead of fetching from CDN.  Tiles are served exclusively from the
-#   tilemap-server-*/tiles/ directories mounted into dedicated nginx containers.
-#   No internet access required once tiles are downloaded.
+#   tilemap-server-* images pulled from GHCR.
+#   No internet access required at runtime (tiles are baked into the images).
 #
 # Prerequisites:
-#   Tiles must be pre-downloaded into tilemap-server-{layer}/tiles/ using the
-#   download script.  See NEW_TILE.md for details.
-#   Quickstart: make tilemap-download ZOOM_MIN=10 ZOOM_MAX=19 LAYERS=dark,light,streets
+#   docker login ghcr.io  (once, to pull private GHCR images)
 #
 # Production equivalent:
-#   GitHub Actions bakes the same tiles into Docker images; K8s deploys them.
-#   This compose mirrors that setup using local bind-mounts instead of images.
+#   GitHub Actions bakes tiles into the same GHCR images; K8s deploys them.
+#   This compose uses those same images directly.
 
 services:
 
@@ -49,23 +43,18 @@ services:
       TILE_SERVER_URL: "${BASE_URL:-http://localhost:8000}/department/tilemap-server"
       TILE_MODE:       offline
       BASE_URL:        "${BASE_URL:-http://localhost:8000}"
+    volumes:
+      - ./config:/app/config:ro
     depends_on:
       - tilemap-dark
       - tilemap-light
       - tilemap-streets
     restart: unless-stopped
 
-  # ── tilemap-server — one nginx per layer, tiles mounted from local disk ───────
-  #
-  # These mirror the CI-built tilemap-server-* images but use local bind-mounts
-  # instead of baked-in tiles.  Run `make tilemap-download` first to populate
-  # the tile directories.
+  # ── tilemap-server — one container per layer, tiles baked into GHCR image ─────
 
   tilemap-dark:
-    image: nginx:1.27-alpine
-    volumes:
-      - ./tilemap-server-dark/tiles:/tiles:ro
-      - ./tilemap-nginx-local.conf:/etc/nginx/nginx.conf:ro
+    image: ghcr.io/teochenglim/mapwatch-py/tilemap-server-dark:${IMAGE_TAG:-latest}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost/healthz"]
       interval: 10s
@@ -74,10 +63,7 @@ services:
     restart: unless-stopped
 
   tilemap-light:
-    image: nginx:1.27-alpine
-    volumes:
-      - ./tilemap-server-light/tiles:/tiles:ro
-      - ./tilemap-nginx-local.conf:/etc/nginx/nginx.conf:ro
+    image: ghcr.io/teochenglim/mapwatch-py/tilemap-server-light:${IMAGE_TAG:-latest}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost/healthz"]
       interval: 10s
@@ -86,10 +72,7 @@ services:
     restart: unless-stopped
 
   tilemap-streets:
-    image: nginx:1.27-alpine
-    volumes:
-      - ./tilemap-server-streets/tiles:/tiles:ro
-      - ./tilemap-nginx-local.conf:/etc/nginx/nginx.conf:ro
+    image: ghcr.io/teochenglim/mapwatch-py/tilemap-server-streets:${IMAGE_TAG:-latest}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost/healthz"]
       interval: 10s

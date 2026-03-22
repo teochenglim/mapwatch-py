@@ -1,6 +1,5 @@
 .PHONY: build up down restart logs dev install seed-data \
-        up-offline down-offline restart-offline logs-offline \
-        tilemap-build tilemap-up tilemap-down tilemap-download
+        pull-offline up-offline down-offline restart-offline logs-offline
 
 # ── Local dev (uvicorn with hot-reload, online CDN tiles) ────────────────────
 dev:
@@ -25,14 +24,17 @@ restart: down up
 logs:
 	docker compose logs -f
 
-# ── Offline mode (app + nginx tilemap containers, local tiles) ────────────────
-# Requires tiles pre-downloaded into tilemap-server-*/tiles/ first.
-# Run `make tilemap-download` before first use.
+# ── Offline mode (app + proxy build; tilemap images pulled from GHCR) ─────────
+# Tiles are baked into GHCR images — no local download needed.
+# Prerequisites: docker login ghcr.io
 build-offline:
 	docker compose -f docker-compose.offline.yml build
 
-up-offline:
-	docker compose -f docker-compose.offline.yml up -d
+pull-offline:
+	docker compose -f docker-compose.offline.yml pull
+
+up-offline: pull-offline
+	docker compose -f docker-compose.offline.yml up -d --remove-orphans
 
 down-offline:
 	docker compose -f docker-compose.offline.yml down
@@ -49,20 +51,3 @@ seed-data:
 	  docker compose cp $$f app:/app/data/; \
 	done
 
-# ── Pre-download Singapore tiles into tilemap-server-*/tiles/ ─────────────────
-# Run this before `make up-offline`.
-# Usage examples:
-#   make tilemap-download                              # dark only, z10-z19
-#   make tilemap-download ZOOM_MIN=10 ZOOM_MAX=15      # lower zoom for quick test
-#   make tilemap-download LAYERS=dark,light,streets    # all layers
-ZOOM_MIN ?= 10
-ZOOM_MAX ?= 19
-LAYERS   ?= dark
-tilemap-download:
-	@for layer in $(shell echo "$(LAYERS)" | tr ',' ' '); do \
-	  echo "==> Downloading $$layer tiles z$(ZOOM_MIN)–z$(ZOOM_MAX)"; \
-	  sh tilemap-server-$$layer/download-sg-tiles.sh \
-	    --zoom-min $(ZOOM_MIN) --zoom-max $(ZOOM_MAX) \
-	    --layers $$layer \
-	    --out tilemap-server-$$layer/tiles; \
-	done

@@ -8,6 +8,172 @@ data:
   BASE_URL:        "http://localhost:8000"
   ROOT_PATH:       "/department/mapwatch-py"
   TILE_SERVER_URL: "http://localhost:8000/department/tilemap-server"
+  TILE_MODE:       "offline"
+
+---
+# ── App config — layers and tile themes baked in, no config/ folder needed ───
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mapwatch-config
+data:
+  layers.yml: |
+    layers:
+      - id: division
+        label: Divisions
+        enabled: true
+        file: sg-npc-boundary
+        source:
+          type: datagov
+          dataset_id: d_89b44df21fccc4f51390eaff16aa1fe8
+        style:
+          type: polygon
+          color: "#4fc3f7"
+          weight: 1.5
+          opacity: 0.8
+          fill_color: "#4fc3f7"
+          fill_opacity: 0.06
+        tooltip:
+          name_props: [NPC_NAME, Name, name]
+          sub_props: [DIVISION, Division]
+        select:
+          restore_style:
+            color: "#4fc3f7"
+            opacity: 0.8
+            fill_opacity: 0.06
+          exclude_contains:
+            props: [DIVISION, Division]
+            value: "Sect"
+
+      - id: roads
+        label: Roads
+        enabled: false
+        file: sg-roads
+        source:
+          type: datagov
+          dataset_id: d_10480c0b59e65663dfae1028ff4aa8bb
+        style:
+          type: line_conditional
+          color: "#f97316"
+          opacity: 0.65
+        select:
+          restore_style:
+            color: "#f97316"
+            opacity: 0.65
+
+      - id: cycling
+        label: Cycling
+        enabled: false
+        file: sg-cycling
+        source:
+          type: datagov
+          dataset_id: d_8f468b25193f64be8a16fa7d8f60f553
+        style:
+          type: line
+          color: "#4ade80"
+          weight: 2
+          opacity: 0.8
+          dash_array: "6,4"
+        select:
+          restore_style:
+            color: "#4ade80"
+            opacity: 0.8
+
+      - id: mrt
+        label: MRT
+        enabled: false
+        file: sg-mrt
+        source:
+          type: datagov
+          dataset_id: d_222bfc84eb86c7c11994d02f8939da8d
+        style:
+          type: line
+          color: "#e11d48"
+          weight: 3
+          opacity: 0.9
+        tooltip:
+          name_props: [name, ref]
+        select:
+          restore_style:
+            color: "#e11d48"
+            opacity: 0.9
+
+      - id: busStops
+        label: Bus Stops
+        enabled: false
+        file: sg-bus-stops
+        source:
+          type: direct
+          url: "https://data.busrouter.sg/v1/stops.min.geojson"
+        style:
+          type: point
+          color: "#f59e0b"
+          fill_color: "#f59e0b"
+          radius: 3
+          weight: 1
+          opacity: 0.8
+          fill_opacity: 0.6
+        tooltip:
+          name_props: [name, code]
+          sub_props: [road]
+          detail_props:
+            - label: Stop
+              prop: code
+        select:
+          restore_style:
+            fillColor: "#f59e0b"
+            color: "#f59e0b"
+            weight: 1
+            opacity: 0.8
+            fillOpacity: 0.6
+
+      - id: busRoutes
+        label: Bus Routes
+        enabled: false
+        file: sg-bus-routes
+        source:
+          type: direct
+          url: "https://data.busrouter.sg/v1/routes.min.geojson"
+        style:
+          type: line
+          color: "#60a5fa"
+          weight: 1
+          opacity: 0.45
+        tooltip:
+          name_props: [service]
+          title_prefix: "Bus "
+          sub_props: [operator]
+          detail_props:
+            - label: Dir
+              prop: direction
+        select:
+          restore_style:
+            color: "#60a5fa"
+            weight: 1
+            opacity: 0.45
+
+  tiles.yml: |
+    themes:
+      - id: dark
+        label: Dark
+        attribution: >-
+          &copy; <a href="https://carto.com/">CartoDB</a>
+          &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>
+        source_url: "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
+        default: true
+
+      - id: light
+        label: Light
+        attribution: >-
+          &copy; <a href="https://carto.com/">CartoDB</a>
+          &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>
+        source_url: "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png"
+
+      - id: streets
+        label: Streets
+        attribution: >-
+          &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors
+        source_url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
 
 ---
 # ── Nginx sidecar config — strips /department/mapwatch-py/ prefix ─────────────
@@ -65,6 +231,9 @@ spec:
           envFrom:
             - configMapRef:
                 name: mapwatch-env
+          volumeMounts:
+            - name: app-config
+              mountPath: /app/config
 
         - name: nginx
           image: nginx:1.27-alpine
@@ -82,6 +251,9 @@ spec:
             periodSeconds: 10
 
       volumes:
+        - name: app-config
+          configMap:
+            name: mapwatch-config
         - name: nginx-conf
           configMap:
             name: mapwatch-nginx
