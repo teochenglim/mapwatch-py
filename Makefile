@@ -1,5 +1,5 @@
-.PHONY: build up down restart logs dev install seed-data \
-        pull-offline up-offline down-offline restart-offline logs-offline
+.PHONY: build up up-build down restart logs dev install seed-data \
+        pull-offline up-offline up-build-offline down-offline restart-offline logs-offline
 
 # ── Local dev (uvicorn with hot-reload, online CDN tiles) ────────────────────
 dev:
@@ -15,6 +15,9 @@ build:
 
 up:
 	docker compose up -d
+
+up-build:
+	docker compose up -d --build
 
 down:
 	docker compose down
@@ -35,6 +38,9 @@ pull-offline:
 
 up-offline: pull-offline
 	docker compose -f docker-compose.offline.yml up -d --remove-orphans
+
+up-build-offline:
+	docker compose -f docker-compose.offline.yml up -d --build --remove-orphans
 
 down-offline:
 	docker compose -f docker-compose.offline.yml down

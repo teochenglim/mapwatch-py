@@ -125,7 +125,9 @@
     });
 
     // Drag-to-select map events.
-    map.on('mousedown', _onSelectMouseDown);
+    // mousedown uses a native DOM listener so it fires even when a GeoJSON
+    // polygon/marker is underneath (Leaflet stops propagation on interactive layers).
+    map.getContainer().addEventListener('mousedown', _onSelectMouseDown);
     map.on('mousemove', _onSelectMouseMove);
     map.on('mouseup',   _onSelectMouseUp);
 
@@ -800,20 +802,28 @@
   }
 
   function _clearSelectionHighlights() {
-    for (const { sublayer, key } of selectedSubLayers) {
-      if (typeof sublayer.setStyle === 'function') {
-        const def = LAYER_DEFS[key];
-        sublayer.setStyle(def ? _buildRestoreStyle(def.cfg) : {});
-      }
+    // Restore style saved directly on each highlighted sublayer.
+    for (const [, state] of Object.entries(layerState)) {
+      if (!state.visible || !state.layer) continue;
+      state.layer.eachLayer(sublayer => {
+        if (sublayer._mwOrigStyle && typeof sublayer.setStyle === 'function') {
+          sublayer.setStyle(sublayer._mwOrigStyle);
+          delete sublayer._mwOrigStyle;
+        }
+      });
     }
     selectedSubLayers = [];
   }
 
   function _onSelectMouseDown(e) {
     if (!selectionMode) return;
-    if (e.originalEvent && e.originalEvent.button !== 0) return;
-    selectStart = e.latlng;
+    if (e.button !== undefined && e.button !== 0) return;   // native MouseEvent
+    if (e.originalEvent && e.originalEvent.button !== 0) return;  // Leaflet event
+    const latlng = e.latlng || map.mouseEventToLatLng(e);
+    selectStart = latlng;
     if (selectRect) { map.removeLayer(selectRect); selectRect = null; }
+    _clearSelectionHighlights();
+    _hideSelectPanel();
   }
 
   function _onSelectMouseMove(e) {
@@ -893,6 +903,15 @@
 
         hits.push({ props: p, sublayer });
         if (typeof sublayer.setStyle === 'function') {
+          // Save original style on the sublayer itself (survives array-tracking issues).
+          sublayer._mwOrigStyle = {
+            color:       sublayer.options.color,
+            fillColor:   sublayer.options.fillColor,
+            weight:      sublayer.options.weight,
+            opacity:     sublayer.options.opacity,
+            fillOpacity: sublayer.options.fillOpacity,
+            dashArray:   sublayer.options.dashArray,
+          };
           sublayer.setStyle({ color: _SELECT_HIGHLIGHT, fillColor: _SELECT_HIGHLIGHT, weight: 2, opacity: 1, fillOpacity: 0.75 });
         }
         selectedSubLayers.push({ sublayer, key });

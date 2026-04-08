@@ -151,8 +151,7 @@ def service_worker() -> Response:
 def index(request: Request) -> HTMLResponse:
     """Render index.html, injecting base-path config for the frontend."""
     tile_base = TILE_SERVER_URL if TILE_SERVER_URL else f"{ROOT_PATH}/tiles"
-    return templates.TemplateResponse("index.html", {
-        "request":      request,
+    return templates.TemplateResponse(request, "index.html", {
         "mw_base":      ROOT_PATH,
         "mw_tile_base": tile_base,
     })

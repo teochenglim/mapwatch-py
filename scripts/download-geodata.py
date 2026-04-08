@@ -55,6 +55,11 @@ async def download_layer(
     filename  = layer["file"] + ".geojson"
     source    = layer["source"]
 
+    dest = out_dir / filename
+    if dest.exists():
+        print(f"  {layer_id}: already exists, skipping")
+        return
+
     if source["type"] == "direct":
         url = source["url"]
         print(f"  {layer_id}: {url}")
@@ -69,7 +74,6 @@ async def download_layer(
         print(f"  {layer_id}: unknown source type '{source['type']}', skipping", file=sys.stderr)
         return
 
-    dest = out_dir / filename
     dest.write_bytes(data)
     print(f"  {layer_id}: saved {dest} ({len(data):,} bytes)")
 
